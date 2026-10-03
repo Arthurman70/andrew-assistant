@@ -61,6 +61,8 @@ def main():
             ('wake_detector.py','/opt/andrew/wake_detector.py','0644'),
             ('wake_capture.py','/opt/andrew/wake_capture.py','0644'),
             ('background_guard.py','/opt/andrew/background_guard.py','0644'),
+            ('voice_tuning.py','/opt/andrew/voice_tuning.py','0644'),
+            ('wake_tuning.json','/opt/andrew/wake_tuning.json','0644'),
             ('pi/camera_capture.py','/opt/andrew/camera_capture.py','0644'),
             ('audio_utils.py','/opt/andrew/audio_utils.py','0644'),
             ('interruption.py','/opt/andrew/interruption.py','0644'),

@@ -307,6 +307,16 @@ class Andrew:
         finally:
             lock.release()
 
+    def rename(self, name):
+        name=' '.join(name.strip().replace('’',"'").split())
+        if (not 1<=len(name)<=32 or len(name.split())>3 or
+                not any(c.isalpha() for c in name) or
+                any(not (c.isalpha() or c in " '-") for c in name)):
+            raise ValueError('Choose a short spoken name with letters, such as Charlie.')
+        name=name.title()
+        self.set('name',name)
+        return f'My name is now {name}. Say Hey {name} to wake me. I will remember it after restarting.'
+
     def command(self, text, source='pc'):
         self.request.source = source
         self.request.speech_silent=False
@@ -317,6 +327,16 @@ class Andrew:
         text = re.sub(r'^(?:please\s+)?(?:(?:can|could|would|will) you\s+)?(?:please\s+)?', '', text, flags=re.I)
         text = re.sub(r',?\s+please$', '', text, flags=re.I)
         low = text.lower()
+        # Resolve assistant naming locally before profiles, games or AI routing.
+        naming=text.replace('’',"'")
+        match=re.fullmatch(r'(?:from now on[, ]+)?(?:your (?:new )?name is(?: now)?|'
+            r'(?:change|set) your name to|rename (?:yourself|the assistant)(?: to)?|'
+            r'call yourself|(?:i will|i\x27ll|i want to|i\x27d like to|let me) call you|'
+            r'you are (?:now )?(?:called|named))\s+(.+)',naming,re.I)
+        if match:return self.rename(match[1])
+        if low in ('change your name','rename yourself','give you a new name','rename the assistant',
+                   'how do i change your name','how can i rename you'):
+            return f'Say Hey {self.get("name")}, call yourself Charlie. Then use Hey Charlie. Choose any short name you like.'
         if low in ('shut up','stop talking','pause speaking','be quiet','continue','keep going','resume speaking') and getattr(self,'speech_control',None):
             self.request.speech_silent=True
             return self.speech_control(source,'resume' if low in ('continue','keep going','resume speaking') else 'pause')
@@ -348,13 +368,6 @@ class Andrew:
         from local_commands import route
         local_answer=route(self,text,source)
         if local_answer is not None: return local_answer
-        match = re.fullmatch(r'(?:your name is(?: now)?|change your name to|rename yourself(?: to)?|call yourself)\s+([\w -]{1,32})', text, re.I)
-        if match:
-            name = match[1].strip().title()
-            if not name or not re.search('[a-zA-Z]', name):
-                raise ValueError('Choose a spoken name with letters.')
-            self.set('name', name)
-            return f'My name is now {name}. I will remember it after restarting.'
         if low in ('what is your name', "what's your name"):
             return f'My name is {self.get("name")}.'
         if low in ('what time is it', 'what is the time', "what's the time", 'tell me the time', 'time'):

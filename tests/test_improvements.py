@@ -32,6 +32,32 @@ class ImprovementTests(unittest.TestCase):
         self.assertTrue((self.destination / 'candidate/dashboard.html').exists())
         self.assertEqual(json.loads((self.destination / 'review.json').read_text())['status'], 'needs_review')
 
+    def test_wake_tuning_is_editable_but_bounded_and_cannot_change_privacy(self):
+        from voice_tuning import DEFAULTS
+        settings=dict(DEFAULTS,quiet_min_rms=35)
+        stage_response(ROOT,self.destination,json.dumps({'files':{'wake_tuning.json':json.dumps(settings)}}))
+        self.assertEqual(json.loads((self.destination/'candidate/wake_tuning.json').read_text()),settings)
+        for invalid in (dict(settings,keyword_threshold=0),dict(settings,quiet_min_rms=True),
+                        dict(settings,transcribe_background=True),dict(settings,keyword_score=float('inf'))):
+            with self.subTest(settings=invalid),self.assertRaises(ValueError):
+                stage_response(ROOT,self.destination,json.dumps({'files':{'wake_tuning.json':json.dumps(invalid)}}))
+
+    def test_wake_request_gets_tuning_source_even_when_model_selects_core(self):
+        from voice_tuning import DEFAULTS
+        root=self.destination/'wake-app';root.mkdir()
+        (root/'core.py').write_text('VALUE = 1\n')
+        (root/'wake_tuning.json').write_text(json.dumps(DEFAULTS))
+        app=Mock();app.directory=root/'data'
+        app.ai.side_effect=[json.dumps({'paths':['core.py']}),json.dumps({'summary':'tune pickup',
+            'edits':[],'files':{'wake_tuning.json':json.dumps(dict(DEFAULTS,quiet_min_rms=35))}})]
+        mgr=ImprovementManager(app,root)
+        with patch('providers.resolve',return_value=('grok','grok-selected',{'label':'Grok'})):
+            mgr.request('Make voice detection a little easier','pc','grok','grok-selected')
+        mgr.thread.join(5);self.assertFalse(mgr.thread.is_alive())
+        prompt=app.ai.call_args_list[1].args[0]
+        self.assertIn('"wake_tuning.json":',prompt)
+        self.assertEqual(mgr.items()[0]['status'],'needs_review')
+
     def fixture(self):
         root=self.destination/'app';root.mkdir()
         (root/'core.py').write_text('VALUE = 1\n',encoding='utf-8')

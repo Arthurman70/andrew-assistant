@@ -5,6 +5,7 @@ import numpy as np
 import sentencepiece as spm
 import sherpa_onnx
 import webrtcvad
+from voice_tuning import load as load_tuning
 
 
 def wake_phrase(name):
@@ -22,9 +23,11 @@ class WakeDetector:
         processor=spm.SentencePieceProcessor(model_file=str(self.directory/'bpe.model'))
         # Spot the entire address, not a name mentioned in another conversation.
         tokens=' '.join(processor.encode(wake_phrase(name).upper(),out_type=str))
-        key=hashlib.sha256(('hey-address-v2:'+name).encode()).hexdigest()[:10]
+        tuning=load_tuning()
+        score=tuning['keyword_score'];threshold=tuning['keyword_threshold']
+        key=hashlib.sha256(f'hey-address-v3:{name}:{score}:{threshold}'.encode()).hexdigest()[:10]
         keywords=self.directory/('keyword-'+key+'.txt')
-        keywords.write_text(tokens+' :2.0 #0.25 @WAKE\n',encoding='utf-8')
+        keywords.write_text(f'{tokens} :{score} #{threshold} @WAKE\n',encoding='utf-8')
         self.spotter=sherpa_onnx.KeywordSpotter(tokens=str(self.directory/'tokens.txt'),
             encoder=str(next(self.directory.glob('encoder*.int8.onnx'))),
             decoder=str(next(self.directory.glob('decoder*.int8.onnx'))),

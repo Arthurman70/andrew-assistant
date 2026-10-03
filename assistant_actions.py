@@ -153,8 +153,7 @@ class Actions:
             from improvements import route
             return route(app,'improvement status',source)
         if name=='assistant.rename':
-            if not re.fullmatch(r'[A-Za-z][\w -]{0,31}',a['name']):return 'Choose a short spoken name.'
-            return app.command('change your name to '+a['name'],source)
+            return app.rename(a['name'])
         if name=='reminder.set':return app.daily.reminder(a['message'],a['when'],source)
         if name in ('list.add','list.remove'):return app.daily.list_change(a['list'],a['item'],name=='list.remove')
         if name=='list.read':return ', '.join(app.daily.lists().get(a['list'].lower(),[])) or 'That list is empty.'

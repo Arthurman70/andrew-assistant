@@ -1,9 +1,11 @@
 """Adapt to ambient speech using numerical levels only; no text or saved audio."""
 from collections import deque
+from voice_tuning import load as load_tuning
 
 
 class BackgroundGuard:
     def __init__(self):
+        self.tuning=load_tuning()
         self.recent=deque(maxlen=300)  # Six seconds of levels / VAD flags, no samples.
         self.frames=0
         self.cautious_until=0
@@ -26,8 +28,10 @@ class BackgroundGuard:
         if not foreground: return False
         floor=ambient[int((len(ambient)-1)*.65)]
         voice=foreground[int((len(foreground)-1)*.75)]
-        ratio=2.2 if mode=='strict' else (1.7 if self.cautious(media,mode) else 1.25)
-        return voice>=max(60 if mode=='strict' else 40,floor*ratio)
+        cautious=self.cautious(media,mode)
+        ratio=2.2 if mode=='strict' else (1.7 if cautious else self.tuning['quiet_foreground_ratio'])
+        minimum=60 if mode=='strict' else (40 if cautious else self.tuning['quiet_min_rms'])
+        return voice>=max(minimum,floor*ratio)
 
     def command_floor(self):
         if not self.recent: return 35

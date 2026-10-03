@@ -61,6 +61,14 @@ class ListeningTests(unittest.TestCase):
 
 
 class BackgroundTests(unittest.TestCase):
+    def test_quieter_address_is_accepted_only_in_quiet_adaptive_mode(self):
+        guard=BackgroundGuard()
+        for _ in range(300):guard.observe(30,False)
+        for _ in range(30):guard.observe(36,True)
+        self.assertTrue(guard.accepts_wake())
+        self.assertFalse(guard.accepts_wake(media=True))
+        self.assertFalse(guard.accepts_wake(mode='strict'))
+
     def test_equal_level_background_rejected_but_close_voice_passes(self):
         guard=BackgroundGuard()
         for _ in range(300): guard.observe(1000,True)

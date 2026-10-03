@@ -34,7 +34,7 @@ class WakeCapture:
         values=np.frombuffer(frame,dtype='<i2').astype(np.float32)
         rms=float(np.sqrt(np.mean(values*values)))
         if not self.active:
-            speech=self.vad.is_speech(frame,16000) and rms>=35
+            speech=self.vad.is_speech(frame,16000) and rms>=30
             self.background.observe(rms,speech)
             self.cautious=self.background.cautious(media,mode)
             if self.cooldown:

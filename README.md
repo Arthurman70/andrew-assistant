@@ -12,6 +12,10 @@ Select a connected account in Connections. Install and sign in to the official [
 
 Choose a microphone and speaker in Settings. Say **“Hey Andrew, what time is it?”** or **“Hey Andrew, switch to Grok”**, **“use Claude Sonnet”**, **“what model are you using?”**.
 
+Rename with **“Hey Andrew, I’ll call you Charlie”**, **“call yourself Alex”**, or **“change your name to Alex”**. The reply confirms the new **Hey + name** wake phrase; the name survives restarts. You can also use **Settings → Assistant name → Rename**. “My name is …” identifies the speaker and does not rename the assistant.
+
+Adaptive listening is slightly more tolerant in a quiet room. TV/media and quiet mode retain stronger foreground checks. Self-improvement can adjust `wake_tuning.json` within validated bounds; microphone capture and the requirement for a complete wake phrase remain protected.
+
 ## Interruption
 
 During a reply, say **“shut up”**, **“stop talking”**, or **“be quiet”**. Say **“continue”** within two minutes to resume remaining speech. Quiet, Continue, and Stop reply buttons are available. A new request replaces a paused answer; resuming speech does not repeat actions. Detection uses local keywords and a foreground-volume check; room acoustics can still affect it.

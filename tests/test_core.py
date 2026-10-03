@@ -57,6 +57,32 @@ class CoreTests(unittest.TestCase):
             self.app.command('cancel tea timer')
             self.assertEqual(self.app.status()['timers'], [])
 
+    def test_natural_rename_phrases_are_local_and_update_wake_address(self):
+        phrases=('I\x27ll call you Charlie','I want to call you Charlie','your new name is Charlie',
+                 'from now on, call yourself Charlie','you are now called Charlie','set your name to Charlie')
+        for phrase in phrases:
+            self.app.set('name','Andrew')
+            with self.subTest(phrase=phrase),patch.object(self.app,'ai',side_effect=AssertionError('Rename reached AI')):
+                answer=self.app.command('Hey Andrew, '+phrase)
+                self.assertIn('Hey Charlie',answer)
+                self.assertEqual(self.app.get('name'),'Charlie')
+                self.assertEqual(self.app.command('Hey Charlie, what is your name'),'My name is Charlie.')
+
+    def test_assistant_rename_is_independent_of_speaker_and_active_game(self):
+        self.app.command('my name is Sam')
+        self.app.command('play chess')
+        self.app.command('call yourself Alex')
+        self.assertEqual(self.app.get('name'),'Alex')
+        self.assertEqual(self.app.memory.current('pc'),self.app.memory.snapshot()['active']['pc']['id'])
+        self.assertEqual(self.app.memory.name(self.app.memory.current('pc')),'Sam')
+
+    def test_rename_guidance_and_invalid_names_do_not_call_ai_or_change_name(self):
+        with patch.object(self.app,'ai',side_effect=AssertionError('Rename reached AI')):
+            self.assertIn('Hey Andrew, call yourself Charlie',self.app.command('change your name'))
+            for name in ('123','Alex/../../','Charlie and then open browser','x'*33):
+                with self.subTest(name=name),self.assertRaises(ValueError):self.app.command('call yourself '+name)
+                self.assertEqual(self.app.get('name'),'Andrew')
+
     def test_camera_never_opens_for_chat_or_offline(self):
         self.assertIn('offline', self.app.command('take a photo'))
         self.assertIsNone(self.app.job()['job'])

@@ -18,7 +18,7 @@ import time
 
 ROOT = Path(__file__).resolve().parent
 EDITABLE = ('app.html', 'dashboard.html', 'pi/screen.html', 'core.py', 'local_commands.py', 'command_controls.py',
-            'speech_engine.py', 'providers.py', 'claude_provider.py', 'grok_provider.py')
+            'speech_engine.py', 'providers.py', 'claude_provider.py', 'grok_provider.py', 'wake_tuning.json')
 ACTIVE = {'planning', 'drafting', 'checking', 'testing', 'installing', 'restarting', 'rolling_back'}
 LOCK = threading.RLock()
 MANAGERS = {}
@@ -129,7 +129,10 @@ def correction(prompt,response,error):
 def check_source(name, content):
     if not isinstance(content, str) or len(content.encode('utf-8')) > 200_000 or '\0' in content:
         raise ValueError('Candidate file is invalid or too large.')
-    if name.endswith('.py'):
+    if name=='wake_tuning.json':
+        from voice_tuning import validate
+        validate(json.loads(content))
+    elif name.endswith('.py'):
         tree=ast.parse(content, filename=name)
         if name.startswith('tests/test_feature_'):
             cases=[node for node in tree.body if isinstance(node,ast.ClassDef) and any(
@@ -224,7 +227,7 @@ def stage_response(root, destination, response):
 def source_paths(root):
     """Only application source and tests; never runtime, credentials, recordings or settings."""
     return sorted(p.relative_to(root).as_posix() for pattern in
-        ('*.py', '*.html', 'pi/*.py', 'pi/*.html', 'tests/test_*.py')
+        ('*.py', '*.html', 'wake_tuning.json', 'pi/*.py', 'pi/*.html', 'tests/test_*.py')
         for p in root.glob(pattern) if p.is_file() and not p.is_symlink())
 
 
@@ -315,9 +318,12 @@ class ImprovementManager:
                 'command_controls.py owns model selection phrases, Andrew page navigation and ordered local command chains. '
                 'local_commands.py is app/media intents, NOT the alarm scheduler; speech_engine.py is speech, '
                 'providers.py is model selection, app.html is PC display, pi/screen.html is Pi display. '
+                'wake_tuning.json owns bounded wake-word sensitivity: keyword_score 1.5..3 (higher is easier), '
+                'keyword_threshold 0.18..0.5 (lower is easier), quiet_foreground_ratio 1.1..1.5 and '
+                'quiet_min_rms 30..60 (lower is easier). Choose it for voice pickup or wake sensitivity. '
                 'You may later create feature_NAME.py and tests/test_feature_NAME.py. '
-                'Capture, wake detection, server authentication, update machinery, credentials and dependency installation '
-                'are protected. Request: ' + request)
+                'Capture, wake-only ASR gates, background/media filtering, server authentication, update machinery, '
+                'credentials and dependency installation are protected. Only the bounded wake settings are editable. Request: ' + request)
             selection_prompt=instruction
             for attempt in range(2):
                 update(path,planning_attempts=attempt+1)
@@ -326,6 +332,11 @@ class ImprovementManager:
                     selected=json_response(response).get('paths')
                     if not isinstance(selected,list) or not 1<=len(selected)<=3 or any(n not in names for n in selected):
                         raise ValueError('The model did not select valid source files from the editable inventory.')
+                    # Always supply the actual tuning file for wake requests;
+                    # otherwise models can pick core.py and incorrectly give up.
+                    if ('wake_tuning.json' in names and re.search(
+                            r'\b(?:wake|pick\s*up|sensitivity|voice detection|voice recognition|microphone|hearing)\b',request,re.I)):
+                        selected=['wake_tuning.json']+[n for n in dict.fromkeys(selected) if n!='wake_tuning.json'][:2]
                     if sum(sizes[n] for n in set(selected))>50_000:
                         raise ValueError('Too much code selected. Choose fewer files, totaling at most 50000 characters.')
                     break
@@ -344,6 +355,8 @@ class ImprovementManager:
                 'Do not return entire existing files; use edits. '
                 'No shell commands, new packages, credential access, telemetry, cloud fallback, or background camera/microphone use. '
                 'Keep wake-only transcription, snooze, camera-on-request, same-device speech and provider account billing intact. '
+                'For wake pickup changes, edit wake_tuning.json within the stated bounds. It is consumed by the '
+                'local keyword detector and quiet-room foreground gate; media and strict filtering remain protected. '
                 'Do not weaken tests. The runner is unittest, NOT pytest. New test files must define unittest.TestCase '
                 'classes and test_ methods. Mock hardware/network/accounts, but test actual Andrew behavior with a temporary '
                 'database rather than mocking away the changed behavior. '
