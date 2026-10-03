@@ -48,6 +48,18 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) to host your own instance. Never expose the u
 
 ## Useful commands
 
+Timers and alarms have separate screen lists and durable numbers. Unnamed items become Timer 1, Timer 2, Alarm 1, etc.; names stay available as shortcuts. Edit an item directly under **Edit time or name**, or use voice:
+
+- “Change tea timer to ten minutes” / “change timer number 2 to five minutes.”
+- “Add two minutes to the tea timer” / “subtract one minute from timer number 1.”
+- “Pause tea timer” / “resume tea timer” / “restart tea timer.”
+- “Rename timer number 1 to pasta.”
+- “Change work alarm to 7:30 am” / “change the 6 am alarm to 8 am.”
+- “Snooze alarm number 1 for ten minutes” when ringing.
+- “Cancel timer number 2” / “cancel all alarms” / “list timers and alarms.”
+
+“Make it ten minutes” uses the most recently referenced item on that device for two minutes, scoped to the identified speaker. When several items match, Andrew lists their names/numbers without changing any. Editing an alarm preserves its identity; editing a paused timer keeps it paused. Countdown durations accept “5 min”, “5m 30s”, MM:SS, or HH:MM:SS. Alarm times follow the host PC clock. Existing schedules retain their deadlines; old items that lack an original duration need a new duration before Restart can be used.
+
 Say **Hey + the current assistant name** before PC/Pi requests:
 
 - Set a tea timer for five minutes / change tea timer to three minutes / cancel tea timer.

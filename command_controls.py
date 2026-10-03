@@ -26,7 +26,7 @@ PAGES = {
     'self improvements': ('connections', 'improvementList', 'Improve Andrew'),
     'self improvement': ('connections', 'improvementList', 'Improve Andrew'),
     'latest improvement': ('connections', 'improvementList', 'Latest improvement'),
-    'timers': ('home', 'timers', 'Timers'), 'alarms': ('home', 'timers', 'Timers and alarms'),
+    'timers': ('home', 'scheduleBoard', 'Timers'), 'alarms': ('home', 'scheduleBoard', 'Alarms'),
     'camera page': ('camera', '', 'Camera'), 'camera tab': ('camera', '', 'Camera'),
     'camera settings': ('camera', '', 'Camera'),
     'calls and texts': ('connections', 'communicationsPanel', 'Calls and texts'),
@@ -71,7 +71,7 @@ def chain_parts(text):
     # Do not reinterpret the body of a message, memory, reminder or code request.
     if re.match(r'^(?:text|send|call|phone|dial|remember|remind|announce|create|improve|self[ -]improve|ask)\b', text, re.I): return None
     if install_intent(text): return None  # "Save and install" is one operation.
-    parts = re.split(r'\s*(?:;|,?\s+and then|,?\s+then|,?\s+and)\s+(?=(?:please )?(?:use|switch|change|set|start|open|show|go|take|install|apply|save|test|snooze|sleep|what|list|stop|cancel|play|improve)\b)', text, flags=re.I)
+    parts = re.split(r'\s*(?:;|,?\s+and then|,?\s+then|,?\s+and)\s+(?=(?:please )?(?:use|switch|change|edit|reset|set|start|add|extend|subtract|pause|resume|restart|rename|open|show|go|take|install|apply|save|test|snooze|sleep|what|list|stop|cancel|play|improve)\b)', text, flags=re.I)
     # Preserve a code request's specification, including any quoted commands.
     for index, part in enumerate(parts):
         if re.match(r'^(?:improve yourself|self[ -]improve)\b',part,re.I):
@@ -84,6 +84,7 @@ def chain_parts(text):
 def local_clause(text):
     text = re.sub(r'^please\s+', '', text, flags=re.I)
     return bool(model_target(text) is not None or navigation_target(text) or install_intent(text) or
+        (re.match(r'^(?:add|extend|subtract|pause|resume|restart|rename|edit|reset|move|reschedule|snooze)\b',text,re.I) and re.search(r'\b(?:timer|alarm)\b',text,re.I)) or
         re.fullmatch(r'(?:what time is it|what is the date|list timers|current model|list models|improvement status)', text, re.I) or
         re.fullmatch(r'(?:set|start|change|edit|reset|cancel|stop) .+ (?:timer|alarm)(?: .+)?', text, re.I) or
         re.fullmatch(r'(?:set|change) (?:your |my |the )?volume(?: to)? \d{1,3}(?: percent|%)?(?: on (?:the )?(?:PC|Pi))?', text, re.I) or

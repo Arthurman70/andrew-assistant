@@ -42,8 +42,8 @@ class AlarmFeatureTests(unittest.TestCase):
     def test_ringing_alarm_announces_and_stops(self):
         self.andrew.command('set an alarm for 7 am', source='pi')
         messages = self.andrew.due(time.time() + 2 * 86400)
-        self.assertEqual(messages, [{'text': 'Your alarm is ringing.', 'source': 'pi'}])
-        self.assertEqual(self.andrew.command('stop the alarm'), 'Alarm stopped.')
+        self.assertEqual(messages, [{'text': 'Alarm 1 is ringing.', 'source': 'pi'}])
+        self.assertEqual(self.andrew.command('stop the alarm'), 'Cancelled Alarm 1.')
         self.assertEqual(self.alarms(), [])
 
     def test_stop_without_ringing_alarm_keeps_active_alarm(self):
@@ -53,7 +53,7 @@ class AlarmFeatureTests(unittest.TestCase):
 
     def test_cancel_single_alarm(self):
         self.andrew.command('set an alarm for 8 am')
-        self.assertEqual(self.andrew.command('cancel my alarm'), 'Alarm cancelled.')
+        self.assertEqual(self.andrew.command('cancel my alarm'), 'Cancelled Alarm 1.')
         self.assertEqual(self.alarms(), [])
 
     def test_cancel_requires_choice_when_several(self):
@@ -61,15 +61,15 @@ class AlarmFeatureTests(unittest.TestCase):
         self.andrew.command('set an alarm called work for 7 am')
         self.assertIn('several alarms', self.andrew.command('cancel my alarm'))
         self.assertEqual(len(self.alarms()), 2)
-        self.assertEqual(self.andrew.command('cancel the gym alarm'), 'Cancelled gym.')
+        self.assertEqual(self.andrew.command('cancel the gym alarm'), 'Cancelled gym (alarm 1).')
         self.assertEqual([r['name'] for r in self.alarms()], ['work'])
-        self.assertEqual(self.andrew.command('cancel all alarms'), 'Alarm cancelled.')
+        self.assertEqual(self.andrew.command('cancel all alarms'), 'Cancelled 1 alarms.')
         self.assertEqual(self.alarms(), [])
 
     def test_named_alarm_ring_message(self):
         self.andrew.command('set an alarm named gym for 6 am')
         messages = self.andrew.due(time.time() + 2 * 86400)
-        self.assertEqual(messages[0]['text'], 'Alarm: gym')
+        self.assertEqual(messages[0]['text'], 'gym (alarm 1) is ringing.')
 
     def test_list_alarms(self):
         self.assertEqual(self.andrew.command('list alarms'), 'No alarms are set.')

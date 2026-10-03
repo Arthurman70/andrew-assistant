@@ -22,6 +22,7 @@ SOURCES=[('pi/agent.py','agent.py'),('pi/activate-agent.sh','activate-agent.sh')
          ('background_guard.py','background_guard.py'),('audio_utils.py','audio_utils.py'),
          ('voice_tuning.py','voice_tuning.py'),('wake_tuning.json','wake_tuning.json'),
          ('interruption.py','interruption.py'),
+         ('assets/upgrade.js','assets/upgrade.js'),('assets/upgrade.css','assets/upgrade.css'),
          ('assets/voice_offline.wav','voice_offline.wav')]
 
 def deployment_version():
@@ -95,7 +96,7 @@ class SatelliteManager:
                 content=(ROOT/source).read_bytes().replace(b'\r\n',b'\n')
                 item=tarfile.TarInfo(destination);item.size=len(content);item.mode=0o644;archive.addfile(item,io.BytesIO(content))
             content=deployment_version().encode();item=tarfile.TarInfo('deployment-version.txt');item.size=len(content);archive.addfile(item,io.BytesIO(content))
-        self.ssh(address,'tar -xf - -C /opt/andrew',bundle.getvalue(),timeout=30)
+        self.ssh(address,'mkdir -p /opt/andrew/assets && tar -xf - -C /opt/andrew',bundle.getvalue(),timeout=30)
         self.ssh(address,'sudo systemctl restart andrew-relay andrew-screen andrew-display',timeout=30)
         self.status.update(state='ready',error='',update_queued=False,installed_version=deployment_version())
         (ROOT/'data/pi-update-queued.json').unlink(missing_ok=True)

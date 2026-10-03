@@ -76,6 +76,8 @@ class Andrew:
         self.actions=Actions(self);self.communications=Communications(self)
         from command_controls import Controls
         self.controls=Controls(self)
+        from feature_timers import Schedule
+        self.schedule=Schedule(self)
         self.notify=None
 
     def get(self, key):
@@ -97,7 +99,10 @@ class Andrew:
 
     def status(self):
         with self.lock:
-            timers = [dict(r) for r in self.db.execute("SELECT * FROM timers WHERE status IN ('active','ringing') ORDER BY due")]
+            timers = [dict(r) for r in self.db.execute("SELECT * FROM timers WHERE status IN ('active','ringing','paused') ORDER BY due")]
+            for row in timers:
+                row['clock_time']=dt.datetime.fromtimestamp(row['due']).strftime('%H:%M')
+                row['due_display']=dt.datetime.fromtimestamp(row['due']).strftime('%a, %b %d · %I:%M %p')
             events = [dict(r) for r in self.db.execute('SELECT * FROM events ORDER BY id DESC LIMIT 12')]
         return {k: self.get(k) for k in ('name', 'provider', 'local_model', 'openai_model', 'claude_model', 'camera_mode', 'pc_speech')} | {
             'timers': timers, 'events': events, 'relay_online': time.time() - self.relay_seen < 20,
@@ -111,8 +116,8 @@ class Andrew:
             rows = self.db.execute("SELECT * FROM timers WHERE status='active' AND due<=?", (now,)).fetchall()
             self.db.execute("UPDATE timers SET status='ringing' WHERE status='active' AND due<=?", (now,))
         messages = [{'text':('Reminder: '+r['name'] if r['kind']=='reminder' else
-                             ('Your alarm is ringing.' if r['name']=='default' else 'Alarm: '+r['name']) if r['kind']=='alarm' else
-                             f"Your {r['name']} {r['kind']} is finished."), 'source':r['source'] or 'pc'} for r in rows]
+                             self.schedule.label(r)+' is ringing.' if r['kind']=='alarm' else
+                             self.schedule.label(r)+' is finished.'), 'source':r['source'] or 'pc'} for r in rows]
         for message in messages:
             self.event(message['text'])
         return messages
@@ -162,6 +167,9 @@ class Andrew:
             raise ValueError('Duration must be positive.')
         text=re.sub(r'\bhalf (?:an? )?hour\b','30 minutes',text,flags=re.I)
         text=re.sub(r'\bhalf (?:a )?minute\b','30 seconds',text,flags=re.I)
+        text=re.sub(r'\bquarter (?:of )?(?:an? )?hour\b','15 minutes',text,flags=re.I)
+        text=re.sub(r'\b(\w+|\d+) and a half (hours?|minutes?)\b',
+            lambda m:m[1]+' '+m[2]+' 30 '+('minutes' if m[2].lower().startswith('hour') else 'seconds'),text,flags=re.I)
         words = {'one': 1, 'a': 1, 'an': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
                  'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10, 'fifteen': 15,
                  'eleven':11,'twelve':12,'thirteen':13,'fourteen':14,'sixteen':16,
@@ -170,6 +178,12 @@ class Andrew:
         for word, number in words.items():
             text = re.sub(r'\b' + word + r'\b', str(number), text.lower())
         text=re.sub(r'\b(20|30|40|50|60|70|80|90)[ -]+([1-9])\b',lambda m:str(int(m[1])+int(m[2])),text)
+        text=re.sub(r'(?<=\d)\s*(secs?|s|mins?|m|hrs?|h)\b',lambda m:' '+('seconds' if m[1].startswith('s') else 'minutes' if m[1].startswith('m') else 'hours'),text)
+        colon=re.fullmatch(r'\s*(\d{1,3}):(\d{2})(?::(\d{2}))?\s*',text)
+        if colon:
+            a,b,c=colon.groups()
+            if int(b)>59 or (c is not None and int(c)>59):raise ValueError('Use minutes:seconds or hours:minutes:seconds.')
+            text=(f'{a} hours {b} minutes {c} seconds' if c is not None else f'{a} minutes {b} seconds')
         matches = re.findall(r'(\d+(?:\.\d+)?)[\s-]*(seconds?|minutes?|hours?)', text)
         total = sum(float(n) * (3600 if u.startswith('hour') else 60 if u.startswith('minute') else 1) for n, u in matches)
         if not 0 < total <= 604800:
@@ -177,13 +191,9 @@ class Andrew:
         return total
 
     def timer(self, name, seconds, kind='timer'):
-        name = name.strip() or 'default'
-        if len(name) > 80:
-            raise ValueError('Timer names must be under 80 characters.')
-        with self.lock, self.db:
-            self.db.execute('INSERT INTO timers (id,name,due,status,kind,source) VALUES (?,?,?,?,?,?)',
-                (secrets.token_hex(5), name, time.time() + seconds, 'active', kind, getattr(self.request,'source','pc')))
-        return f'{name.capitalize()} {kind} set for {int(seconds)} seconds.'
+        from feature_timers import duration
+        row=self.schedule.create(name,seconds,kind)
+        return f'{self.schedule.label(row)} set for {duration(seconds)}.'
 
     def home(self, text):
         url, token = self.get('ha_url'), self.get('ha_token')
@@ -352,6 +362,12 @@ class Andrew:
         from listening import route as listening_route
         listening_answer=listening_route(self,text,source)
         if listening_answer is not None: return listening_answer
+        if (not getattr(self.request,'action_internal',False) and
+                re.match(r'^(?:set|start|create|change|edit|reset|add|extend|subtract|pause|resume|restart|cancel|stop|snooze)\b',low) and
+                re.search(r'\b(?:and(?: then)?|then)\s+(?:set|start|add|remove|turn|play|remind|open|close|dim)\b',low)):
+            return self.ai(text)
+        schedule_answer=self.schedule.route(text,source)
+        if schedule_answer is not None:return schedule_answer
         memory_answer=self.memory.route(text,source)
         if memory_answer is not None:return memory_answer
         self.memory.learn(text,source)
@@ -380,66 +396,6 @@ class Andrew:
         if match:
             provider = {'open ai': 'openai', 'chatgpt': 'openai'}.get(match[1].lower(), match[1].lower())
             return self.ai(match[3], provider, match[2])
-        match = re.fullmatch(r'(?:set|start) (?:a |an )?(?:(.+?) )?timer for (.+)', low)
-        if match:
-            return self.timer(match[1] or 'default', self.seconds(match[2]))
-        match = re.fullmatch(r'(?:set|start) (?:a |an )?(.+?) timer(?: (?:called|named) (.+))?', low)
-        if match:
-            return self.timer(match[2] or 'default', self.seconds(match[1]))
-        match = re.fullmatch(r'(?:change|edit|reset) (?:the )?(.+?) timer to (.+)', low)
-        if match:
-            duration = self.seconds(match[2])
-            with self.lock, self.db:
-                rows = self.db.execute("SELECT id FROM timers WHERE lower(name)=? AND status IN ('active','ringing')", (match[1],)).fetchall()
-                if len(rows) != 1:
-                    return 'Use a unique active timer name; I could not identify exactly one timer.'
-                self.db.execute("UPDATE timers SET due=?,status='active' WHERE id=?", (time.time()+duration, rows[0]['id']))
-            return f'{match[1]} timer reset to {int(duration)} seconds.'
-        if low in ('list timers', 'what timers are running', 'timers'):
-            rows = self.status()['timers']
-            return '; '.join(f"{r['name']}: {max(0, round(r['due']-time.time()))} seconds, {r['status']}" for r in rows) or 'No active timers.'
-        if re.fullmatch(r'(?:stop|dismiss|silence|turn off|cancel) (?:the |my |that |all |all my |all the )?alarms?', low):
-            with self.lock, self.db:
-                if self.db.execute("UPDATE timers SET status='cancelled' WHERE kind='alarm' AND status='ringing'").rowcount:
-                    return 'Alarm stopped.'
-                if not low.startswith('cancel'):
-                    return 'No alarm is ringing.'
-                rows = self.db.execute("SELECT id FROM timers WHERE kind='alarm' AND status='active'").fetchall()
-                if not rows:
-                    return 'No alarms are set.'
-                if len(rows) > 1 and ' all' not in low and not low.endswith('alarms'):
-                    return 'You have several alarms. Say cancel all alarms, or name the alarm to cancel.'
-                self.db.execute("UPDATE timers SET status='cancelled' WHERE kind='alarm' AND status='active'")
-            return 'Alarm cancelled.' if len(rows) == 1 else f'Cancelled {len(rows)} alarms.'
-        if low in ('list alarms', 'alarms', 'what alarms are set', 'what alarms do i have', 'show alarms', 'show my alarms', 'list my alarms'):
-            rows = [r for r in self.status()['timers'] if r['kind'] == 'alarm']
-            return '; '.join(f"{r['name']}: {dt.datetime.fromtimestamp(r['due']).strftime('%A %I:%M %p')}, {r['status']}" for r in rows) or 'No alarms are set.'
-        match = re.fullmatch(r'(?:cancel|stop|dismiss) (?:the )?(.+?) (?:timer|alarm)', low)
-        if match:
-            with self.lock, self.db:
-                cursor = self.db.execute("UPDATE timers SET status='cancelled' WHERE lower(name)=? AND status IN ('active','ringing')", (match[1],))
-            return f'Cancelled {match[1]}.' if cursor.rowcount else 'No matching timer or alarm.'
-        alarm_low = re.sub(r'(?<=\d)\s*([ap])\.?\s?m\b\.?', r' \1m', low)
-        alarm_low = re.sub(r"\s*o'?clock\b", '', alarm_low)
-        alarm_low = re.sub(r'^wake me(?: up)? (?:at|by)\s+', 'set alarm for ', alarm_low)
-        match = re.fullmatch(r'(?:set|create|change|edit) (?:an? |my |the )?alarm(?: (?:called|named) (.+?))? (?:for|to|at) (\d{1,2})(?::(\d{2}))?\s*(am|pm)?', alarm_low)
-        if match:
-            low = alarm_low
-            name, hour, minute, period = match.groups()
-            hour, minute = int(hour), int(minute or 0)
-            if minute > 59 or (period and not 1 <= hour <= 12) or (not period and hour > 23):
-                raise ValueError('Use a valid time, such as 7:30 am.')
-            if period:
-                hour = hour % 12 + (12 if period == 'pm' else 0)
-            now = dt.datetime.now()
-            target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if target <= now:
-                target += dt.timedelta(days=1)
-            if low.startswith(('change', 'edit')):
-                with self.lock, self.db:
-                    self.db.execute("UPDATE timers SET status='cancelled' WHERE name=? AND kind='alarm'", (name or 'default',))
-            self.timer(name or 'default', (target-now).total_seconds(), 'alarm')
-            return 'Alarm set for ' + target.strftime('%A %I:%M %p') + '. The PC must remain awake.'
         if low in ('take a photo', 'take a picture', 'look through the camera', 'show me the camera'):
             if time.time()-self.relay_seen > 20:
                 return 'The Pi is offline. No camera request was created.'

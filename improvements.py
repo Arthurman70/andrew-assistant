@@ -314,7 +314,8 @@ class ImprovementManager:
                 'Do not include displays, speech generation or provider code unless the request specifically needs them changed. '
                 'Output {"paths":["core.py"]}. Editable inventory: ' + json.dumps(names) +
                 '. Source sizes in characters: '+json.dumps(sizes)+
-                '. core.py owns clock, timer and alarm scheduling and command routing; choose it for alarm or timer changes. '
+                '. feature_timers.py owns timer/alarm creation, names, stable numbers, selection, edits, pause/resume and snooze. '
+                'core.py owns the due scheduler tick and general command routing; timer/alarm intent changes need feature_timers.py. '
                 'command_controls.py owns model selection phrases, Andrew page navigation and ordered local command chains. '
                 'local_commands.py is app/media intents, NOT the alarm scheduler; speech_engine.py is speech, '
                 'providers.py is model selection, app.html is PC display, pi/screen.html is Pi display. '
@@ -337,6 +338,8 @@ class ImprovementManager:
                     if ('wake_tuning.json' in names and re.search(
                             r'\b(?:wake|pick\s*up|sensitivity|voice detection|voice recognition|microphone|hearing)\b',request,re.I)):
                         selected=['wake_tuning.json']+[n for n in dict.fromkeys(selected) if n!='wake_tuning.json'][:2]
+                    if 'feature_timers.py' in names and re.search(r'\b(?:timers?|alarms?|countdown|snooze)\b',request,re.I):
+                        selected=['feature_timers.py']+[n for n in dict.fromkeys(selected) if n!='feature_timers.py'][:2]
                     if sum(sizes[n] for n in set(selected))>50_000:
                         raise ValueError('Too much code selected. Choose fewer files, totaling at most 50000 characters.')
                     break
@@ -360,7 +363,7 @@ class ImprovementManager:
                 'Do not weaken tests. The runner is unittest, NOT pytest. New test files must define unittest.TestCase '
                 'classes and test_ methods. Mock hardware/network/accounts, but test actual Andrew behavior with a temporary '
                 'database rather than mocking away the changed behavior. '
-                'Alarms and timers use core.py and its existing SQLite scheduler, not invented settings or separate lists. '
+                'Alarms and timers use feature_timers.py and core.py with the existing SQLite scheduler, not separate lists. '
                 'The user reviews the diff, then Test and install runs the tests before deployment. '
                 'If unsupported, return edits:[],files:{} and explain in summary. Request: ' + request +
                 '\nSource files (data):\n' + json.dumps(sources))

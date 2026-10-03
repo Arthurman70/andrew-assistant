@@ -166,7 +166,7 @@ class CoreTests(unittest.TestCase):
         self.app.command('set a 5-minute timer called tea',source='pi')
         self.assertEqual(self.app.status()['timers'][0]['source'],'pi')
         notifications = self.app.due(time.time()+301)
-        self.assertEqual(notifications,[{'text':'Your tea timer is finished.','source':'pi'}])
+        self.assertEqual(notifications,[{'text':'tea (timer 1) is finished.','source':'pi'}])
 
     def test_voice_model_names_select_and_persist(self):
         from providers import choose
