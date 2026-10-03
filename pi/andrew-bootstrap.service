@@ -1,0 +1,14 @@
+[Unit]
+Description=Install Andrew voice relay and display
+Wants=network-online.target
+After=network-online.target cloud-final.service
+ConditionPathExists=!/opt/andrew/bootstrap-complete
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/andrew/bootstrap.sh
+TimeoutStartSec=infinity
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

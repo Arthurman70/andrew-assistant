@@ -1,0 +1,14 @@
+sounddevice==0.5.6
+cryptography==50.0.2
+requests==2.34.2
+faster-whisper==1.2.1
+piper-tts==1.8.0
+webrtcvad-wheels==2.0.14
+sherpa-onnx==1.13.8
+sentencepiece==0.2.2
+kokoro-onnx==0.6.1
+
+pywinauto==0.6.9; sys_platform == "win32"
+pycaw==20260927; sys_platform == "win32"
+psutil==7.2.2
+chess==1.11.2

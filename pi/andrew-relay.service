@@ -1,0 +1,23 @@
+[Unit]
+Description=Andrew local microphone and on-request webcam relay
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=andrew
+Group=andrew
+SupplementaryGroups=audio video
+WorkingDirectory=/opt/andrew
+ExecStart=/opt/andrew/venv/bin/python /opt/andrew/agent.py
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/andrew
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

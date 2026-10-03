@@ -1,0 +1,14 @@
+[Unit]
+Description=Andrew local screen interface
+After=network-online.target
+[Service]
+User=andrew
+WorkingDirectory=/opt/andrew
+ExecStart=/usr/bin/python3 /opt/andrew/screen.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+[Install]
+WantedBy=multi-user.target
