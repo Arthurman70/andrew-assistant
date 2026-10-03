@@ -88,8 +88,9 @@ class Schedule:
 
     def create(self,name,seconds,kind='timer',source=None,due=None):
         if kind not in ('timer','alarm','reminder'):raise ValueError('Unknown schedule type.')
-        if type(seconds) not in (int,float) or not math.isfinite(seconds) or not 0<seconds<=604800:
-            raise ValueError('Use a duration between one second and seven days.')
+        if (type(seconds) not in (int,float) or not math.isfinite(seconds) or seconds<=0 or
+                (kind=='timer' and seconds>604800)):
+            raise ValueError('Use a positive duration; countdown timers can run up to seven days.')
         source=source or getattr(self.app.request,'source','pc')
         name=str(name).strip()
         if len(name)>80:raise ValueError('Use a name under 80 characters.')
@@ -192,7 +193,7 @@ class Schedule:
             seconds=self.app.seconds(value)
             current=row['remaining'] if row['status']=='paused' else max(0,row['due']-now)
             remaining=seconds if action=='snooze' else current+(seconds if action=='add' else -seconds)
-            if not 0<remaining<=604800:raise ValueError('That would leave no time or exceed seven days. Nothing was changed.')
+            if remaining<=0 or (kind=='timer' and remaining>604800):raise ValueError('That would leave no time or exceed the countdown limit. Nothing was changed.')
             updates=({'remaining':remaining} if row['status']=='paused' else {'due':now+remaining,'status':'active'})
             if kind=='timer' and row['status']=='ringing':updates['duration']=remaining
             answer=f'{label} '+('snoozed for ' if action=='snooze' else 'now has ')+duration(remaining)+(' left.' if action!='snooze' else '.')
@@ -227,12 +228,12 @@ class Schedule:
             with self.app.lock,self.app.db:
                 for r in rows:self.app.db.execute("UPDATE timers SET status='cancelled' WHERE id=?",(r['id'],))
             return f'Cancelled {len(rows)} '+m[1]+'.'
-        m=re.fullmatch(r'(?:add|extend(?: by)?) (.+?) (?:to|on) (.*?timer(?: (?:number )?\w+)?)',low)
-        if m:return self.modify(m[2],'timer','add',source,m[1],scope)
-        m=re.fullmatch(r'extend (.*?timer(?: number \w+)?) by (.+)',low)
-        if m:return self.modify(m[1],'timer','add',source,m[2],scope)
-        m=re.fullmatch(r'(?:subtract|remove|take off) (.+?) (?:from|off) (.*?timer(?: number \w+)?)',low)
-        if m:return self.modify(m[2],'timer','subtract',source,m[1],scope)
+        m=re.fullmatch(r'(?:add|extend(?: by)?) (.+?) (?:to|on) (.*?(?:timer|alarm)(?: (?:number )?\w+)?)',low)
+        if m:return self.modify(m[2],'alarm' if re.search(r'\balarm\b',m[2]) else 'timer','add',source,m[1],scope)
+        m=re.fullmatch(r'extend (.*?(?:timer|alarm)(?: number \w+)?) by (.+)',low)
+        if m:return self.modify(m[1],'alarm' if re.search(r'\balarm\b',m[1]) else 'timer','add',source,m[2],scope)
+        m=re.fullmatch(r'(?:subtract|remove|take off) (.+?) (?:from|off) (.*?(?:timer|alarm)(?: number \w+)?)',low)
+        if m:return self.modify(m[2],'alarm' if re.search(r'\balarm\b',m[2]) else 'timer','subtract',source,m[1],scope)
         m=re.fullmatch(r'(?:rename|name|call) (.*?(?:timer|alarm)(?: (?:number )?\w+)?) (?:to|as|called|named) (.+)',low)
         if m:return self.modify(m[1],'alarm' if 'alarm' in m[1] else 'timer','rename',source,m[2],scope)
         m=re.fullmatch(r'(?:change|edit|reset|move|reschedule) (.+?) (?:to|for|at) (.+)',low)
@@ -259,7 +260,9 @@ class Schedule:
         m=re.fullmatch(r'(?:add|give it) (.+?)(?: more)?',low)
         if m and re.search(r'\b(?:seconds?|minutes?|hours?)\b',m[1]):
             amount=re.sub(r'\s+(?:to|on) (?:it|that|the one|that one)$','',m[1])
-            return self.modify('it','timer','add',source,amount,scope)
+            if re.search(r'\b(?:to|on|from)\b',amount):return None
+            contextual=self.context(source)
+            return self.modify('it',contextual['kind'] if contextual and (not scope or contextual['source']==scope) else 'timer','add',source,amount,scope)
         m=re.fullmatch(r'(cancel|delete|stop|dismiss|silence|turn off|pause|resume|restart|snooze) (.*?(?:timer|alarm)(?: (?:number |called |named )?[^ ]+)?)(?: for (.+))?',low)
         if m:
             action,selector,value=m.groups();kind='alarm' if re.search(r'\balarm\b',selector) else 'timer'

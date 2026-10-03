@@ -180,3 +180,23 @@ class ScheduleTests(unittest.TestCase):
         after={r['source']:r['due'] for r in self.rows()}
         self.assertAlmostEqual(after['pc']-before['pc'],1800,delta=1)
         self.assertEqual(after['pi'],before['pi'])
+
+    def test_extending_alarm_cannot_accidentally_extend_timer(self):
+        self.ask('set a tea timer for ten minutes');self.ask('set a work alarm for 7 am')
+        before_timer=self.rows()[0]['due'];before_alarm=self.rows('alarm')[0]['due']
+        self.ask('add thirty minutes to alarm number one')
+        self.assertAlmostEqual(self.rows('alarm')[0]['due']-before_alarm,1800,delta=1)
+        self.assertEqual(self.rows()[0]['due'],before_timer)
+        self.ask('subtract ten minutes from work alarm')
+        self.assertAlmostEqual(self.rows('alarm')[0]['due']-before_alarm,1200,delta=1)
+
+    def test_unknown_add_target_cannot_change_an_unrelated_timer(self):
+        self.ask('set a tea timer for ten minutes');before=self.rows()[0]['due']
+        with patch.object(self.app,'ai',return_value='Please identify that item'):
+            self.ask('add five minutes to the lamp')
+        self.assertEqual(self.rows()[0]['due'],before)
+
+    def test_countdown_limit_does_not_break_future_calendar_reminders(self):
+        self.app.timer('calendar reminder',30*86400,'reminder')
+        self.assertEqual(len(self.rows('reminder')),1)
+        with self.assertRaises(ValueError):self.app.timer('too long countdown',30*86400)
