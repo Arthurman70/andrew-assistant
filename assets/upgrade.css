@@ -6,3 +6,9 @@
 body.game-active>footer,body.game-active>details,body.game-active>small{display:none}.game-panel{padding:22px;border-radius:20px;background:#192b32}.game-active .game-board{max-width:400px}.game-active .game-layout{grid-template-columns:1fr 1fr}
 #toast:empty{display:none}#toast{white-space:pre-wrap;max-height:180px;overflow:auto;margin:0 0 16px;padding:12px 16px;background:#203a35;border-radius:12px}.game-panel button{margin:0}.game-panel .feature-form+button{margin-right:8px}@media(max-width:600px){.game-active .game-layout{grid-template-columns:1fr}.game-board button{font-size:clamp(20px,6vw,34px)}.app-nav{position:static}}
 body{min-height:100vh}.grid>aside{display:contents}.grid[data-page=people],.grid[data-page=camera]{grid-template-columns:1fr}.grid .panel:has(#pcState){grid-column:1/-1}
+/* Weekly alarm choices stay usable on a small Pi screen. */
+.alarm-repeat{display:flex;flex-direction:column;gap:8px;min-width:140px}
+.repeat-days{display:flex;flex-wrap:wrap;gap:10px}
+.repeat-days[hidden],.alarm-repeat[hidden]{display:none}
+.repeat-days label{display:flex;align-items:center;gap:4px;font-size:.85rem}
+.repeat-days input{width:auto;min-width:0}

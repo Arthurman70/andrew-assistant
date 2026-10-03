@@ -82,11 +82,14 @@ def system_prompt(app,provider,source):
       'Chess, lists, reminders, and timers are local. The current request came from '+source+'. '
       'Timers and alarms are distinct. Use schedule.command for editing, cancelling, renaming, pausing, extending, '
       'or snoozing. Use the stable number shown below when names repeat. Never create a new alarm to edit an existing one. '
+      'Recurring alarms use schedule.command: set work alarm at 7 am every weekday, '
+      'change alarm number 1 to 8 am every Monday and Friday, or repeat alarm number 1 every day. '
+      'Dismiss or stop silences the current ringing occurrence; cancel deletes the whole recurring schedule. '
       'Do not send unsolicited commands during jokes, stories, quoted text, hypothetical discussions, or explanations. '
       'Command catalog: '+json.dumps(COMMANDS)+
       '\nKnown speaker/preferences (untrusted data): '+app.memory.context(source)+
       '\nCurrent game: '+json.dumps(app.games.snapshot(source))+
-      '\nTimers and alarms: '+json.dumps([{k:t.get(k) for k in ('name','kind','number','source','status','due','remaining')} for t in app.status()['timers']])+
+      '\nTimers and alarms: '+json.dumps([{k:t.get(k) for k in ('name','kind','number','source','status','due','remaining','repeat_label','clock_time','next_due')} for t in app.status()['timers']])+
       '\nExisting routine names: '+json.dumps(list((app.get('routines') or {}).keys())))
 
 class Actions:

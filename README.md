@@ -60,6 +60,17 @@ Timers and alarms have separate screen lists and durable numbers. Unnamed items 
 
 “Make it ten minutes” uses the most recently referenced item on that device for two minutes, scoped to the identified speaker. When several items match, Andrew lists their names/numbers without changing any. Editing an alarm preserves its identity; editing a paused timer keeps it paused. Countdown durations accept “5 min”, “5m 30s”, MM:SS, or HH:MM:SS. Alarm times follow the host PC clock. Existing schedules retain their deadlines; old items that lack an original duration need a new duration before Restart can be used.
 
+Alarms can repeat every day, weekdays, weekends, or selected days. Choose the repetition and day checkboxes when creating/editing an alarm, or say:
+
+- “Hey Andrew, set work alarm at 7:30 am every weekday.”
+- “Hey Andrew, change work alarm to 8 am every Monday and Friday.”
+- “Hey Andrew, repeat alarm number 1 every day.”
+- “Hey Andrew, stop repeating work alarm.”
+
+Dismiss/stop silences a ringing occurrence and retains the next scheduled alarm. Snooze retains its regular clock time. Cancel removes the entire recurring schedule. These local commands need no AI account. The host must be running; after downtime, Andrew announces one overdue occurrence and schedules the next future day instead of replaying every missed alarm.
+
+Self-improvement automatically supplies the timer command handler, SQLite schema, scheduler and calendar implementation together for alarm/timer requests. If a model names a missing editable source file, Andrew supplies it and retries once. Protected capture, authentication, runtime settings and credentials are excluded; candidate changes still require review and isolated regression tests before installation.
+
 Say **Hey + the current assistant name** before PC/Pi requests:
 
 - Set a tea timer for five minutes / change tea timer to three minutes / cancel tea timer.

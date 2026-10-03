@@ -67,6 +67,49 @@ class ImprovementTests(unittest.TestCase):
             {'path':'core.py','old':'VALUE = 1','new':'VALUE = 2'}]}))
         return root,path,read_json(path/'review.json')
 
+    def test_alarm_request_always_includes_schema_tick_and_feature_dependencies(self):
+        root=self.destination/'alarm-app';root.mkdir()
+        for name,content in {'core.py':'VALUE = 1\n','feature_timers.py':'VALUE = 1\n',
+                             'feature_alarm_recurrence.py':'VALUE = 1\n','local_commands.py':'VALUE = 1\n'}.items():
+            (root/name).write_text(content)
+        for provider in ('openai','claude','grok','local'):
+            with self.subTest(provider=provider):
+                app=Mock();app.directory=root/('data-'+provider)
+                app.ai.side_effect=[json.dumps({'paths':['local_commands.py']}),json.dumps({'summary':'weekly alarms',
+                    'edits':[{'path':'feature_timers.py','old':'VALUE = 1','new':'VALUE = 2'}],'files':{}})]
+                mgr=ImprovementManager(app,root)
+                with patch('providers.resolve',return_value=(provider,'selected',{'label':provider})):
+                    mgr.request('Set alarms for a whole week recurring','pc',provider,'selected')
+                mgr.thread.join(5);self.assertFalse(mgr.thread.is_alive())
+                prompt=app.ai.call_args_list[1].args[0]
+                for name in ('core.py','feature_timers.py','feature_alarm_recurrence.py'):self.assertIn('"'+name+'":',prompt)
+                self.assertEqual(mgr.items()[0]['status'],'needs_review')
+                self.assertEqual((root/'feature_timers.py').read_text(),'VALUE = 1\n')
+                for call in app.ai.call_args_list:self.assertEqual(call.args[1:],(provider,'selected'))
+
+    def test_missing_source_no_change_is_recovered_with_editable_file(self):
+        root=self.destination/'dependency-app';root.mkdir()
+        (root/'core.py').write_text('VALUE = 1\n');(root/'feature_preferences.py').write_text('VALUE = 1\n')
+        app=Mock();app.directory=root/'data'
+        app.ai.side_effect=[json.dumps({'paths':['core.py']}),json.dumps({'summary':
+            'Unsupported with the supplied source: feature_preferences.py is missing.','edits':[],'files':{}}),
+            json.dumps({'summary':'saved preferences','edits':[{'path':'feature_preferences.py','old':'VALUE = 1','new':'VALUE = 2'}],'files':{}})]
+        mgr=ImprovementManager(app,root)
+        with patch('providers.resolve',return_value=('openai','gpt-6-luna',{'label':'OpenAI'})):
+            mgr.request('Save my preferences')
+        mgr.thread.join(5);self.assertFalse(mgr.thread.is_alive())
+        self.assertEqual(mgr.items()[0]['status'],'needs_review');self.assertEqual(app.ai.call_count,3)
+        self.assertIn('"feature_preferences.py":',app.ai.call_args_list[2].args[0])
+        self.assertEqual((root/'feature_preferences.py').read_text(),'VALUE = 1\n')
+
+    def test_false_missing_source_claim_is_retried_once_not_installed(self):
+        nochange=json.dumps({'summary':'Unsupported: supplied source does not include core.py or the SQLite schema.',
+                             'edits':[],'files':{}})
+        root,app,mgr,row=self.generate_responses(['{"paths":["core.py"]}',nochange,nochange])
+        self.assertEqual(app.ai.call_count,3);self.assertEqual(row['status'],'no_changes')
+        self.assertIn('required editable source is supplied',app.ai.call_args_list[2].args[0])
+        self.assertEqual((root/'core.py').read_text(),'VALUE = 1\n')
+
     def test_code_edits_stage_without_executing_or_touching_live_code(self):
         root,path,review=self.fixture()
         self.assertEqual((root/'core.py').read_text(),'VALUE = 1\n')

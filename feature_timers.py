@@ -4,6 +4,8 @@ import math
 import re
 import secrets
 import time
+import json
+from feature_alarm_recurrence import repeat_clause, weekdays, repeat_label, next_occurrence
 
 LIVE = ('active','ringing','paused')
 NUMBERS = dict(zip(('one','two','three','four','five','six','seven','eight','nine','ten',
@@ -57,7 +59,8 @@ class Schedule:
         self.app=app;self.recent={}
         with app.lock,app.db:
             columns={r[1] for r in app.db.execute('PRAGMA table_info(timers)')}
-            for name,type_ in (('number','INTEGER'),('duration','REAL'),('remaining','REAL'),('created_at','REAL')):
+            for name,type_ in (('number','INTEGER'),('duration','REAL'),('remaining','REAL'),('created_at','REAL'),
+                               ('repeat_days','TEXT'),('alarm_time','TEXT'),('next_due','REAL')):
                 if name not in columns:app.db.execute(f'ALTER TABLE timers ADD COLUMN {name} {type_}')
             # Preserve every deadline/status while assigning durable identities.
             for kind in ('timer','alarm','reminder'):
@@ -86,7 +89,7 @@ class Schedule:
             return next((r for r in self.rows() if r['id']==recent[1]),None)
         return None
 
-    def create(self,name,seconds,kind='timer',source=None,due=None):
+    def create(self,name,seconds,kind='timer',source=None,due=None,repeat_days=None):
         if kind not in ('timer','alarm','reminder'):raise ValueError('Unknown schedule type.')
         if (type(seconds) not in (int,float) or not math.isfinite(seconds) or seconds<=0 or
                 (kind=='timer' and seconds>604800)):
@@ -98,8 +101,13 @@ class Schedule:
             number=self.app.db.execute('SELECT COALESCE(MAX(number),0)+1 FROM timers WHERE kind=?',(kind,)).fetchone()[0]
             name=name if name and name.lower()!='default' else f'{kind.title()} {number}'
             identity=secrets.token_hex(5);now=time.time()
-            self.app.db.execute('INSERT INTO timers(id,name,due,status,kind,source,number,duration,created_at) VALUES (?,?,?,?,?,?,?,?,?)',
-                (identity,name,due or now+seconds,'active',kind,source,number,seconds,now))
+            deadline=due or now+seconds
+            clock=dt.datetime.fromtimestamp(deadline).strftime('%H:%M') if kind=='alarm' else None
+            if repeat_days:
+                if kind!='alarm':raise ValueError('Only clock alarms can repeat.')
+                deadline=next_occurrence(clock,repeat_days,now)
+            self.app.db.execute('INSERT INTO timers(id,name,due,status,kind,source,number,duration,created_at,repeat_days,alarm_time) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                (identity,name,deadline,'active',kind,source,number,seconds,now,json.dumps(repeat_days) if repeat_days else None,clock))
         row=next(r for r in self.rows() if r['id']==identity);self.remember(row,source)
         return row
 
@@ -109,7 +117,8 @@ class Schedule:
         elif row['kind']=='alarm':detail=dt.datetime.fromtimestamp(row['due']).strftime('%A %I:%M %p')
         else:detail=duration(row['due']-time.time())+' left'
         device={'pc':'PC','pi':'Pi','browser':'browser'}.get(row['source'],row['source'])
-        return f'{self.label(row)}: {detail}, on {device}'
+        repeat=', '+repeat_label(row) if weekdays(row) else ''
+        return f'{self.label(row)}: {detail}{repeat}, on {device}'
 
     def resolve(self,selector,kind,source,scope=None,ringing=False,allow_recent=True):
         rows=self.rows(kind,scope)
@@ -161,7 +170,12 @@ class Schedule:
             return error
         kind=row['kind']
         label=self.label(row);now=time.time();updates={}
-        if action in ('cancel','dismiss'):updates={'status':'cancelled'};answer=f'Cancelled {label}.'
+        if action=='dismiss' and kind=='alarm' and weekdays(row):
+            next_due=row['next_due']
+            if not next_due or next_due<=now:next_due=next_occurrence(row['alarm_time'],weekdays(row),now)
+            updates={'status':'active','due':next_due,'next_due':None}
+            answer=f'Dismissed {label}. Next: '+dt.datetime.fromtimestamp(next_due).strftime('%A %I:%M %p')+'.'
+        elif action in ('cancel','dismiss'):updates={'status':'cancelled','next_due':None};answer=f'Cancelled {label}.'
         elif action=='rename':
             name=value.strip()
             if not name or len(name)>80:raise ValueError('Use a name under 80 characters.')
@@ -180,13 +194,26 @@ class Schedule:
             updates={'status':'active','due':now+(row['duration'] or 1),'remaining':None};answer=label+' restarted for '+duration(row['duration'] or 1)+'.'
         elif action=='reset':
             if kind=='alarm':
-                target=clock_target(value);updates={'due':target.timestamp(),'status':'active','remaining':None}
-                answer=f'{label} set for '+target.strftime('%A %I:%M %p')+'.'
+                clock,days,specified=repeat_clause(value)
+                if not specified:days=weekdays(row)
+                target=clock_target(clock)
+                alarm_time=target.strftime('%H:%M')
+                deadline=next_occurrence(alarm_time,days,now) if days else target.timestamp()
+                updates={'due':deadline,'status':'active','remaining':None,'alarm_time':alarm_time,
+                         'repeat_days':json.dumps(days) if days else None,'next_due':None}
+                answer=f'{label} set for '+dt.datetime.fromtimestamp(deadline).strftime('%A %I:%M %p')+('. '+repeat_label(updates)+'.' if days else '.')
             else:
                 seconds=self.app.seconds(value)
                 updates=({'remaining':seconds,'duration':seconds} if row['status']=='paused' else
                          {'due':now+seconds,'duration':seconds,'status':'active','remaining':None})
                 answer=f'{label} reset to {duration(seconds)}.'+(' Still paused.' if row['status']=='paused' else '')
+        elif action=='repeat':
+            if kind!='alarm':return 'Only clock alarms can repeat.'
+            days=value
+            clock=row['alarm_time'] or dt.datetime.fromtimestamp(row['due']).strftime('%H:%M')
+            deadline=next_occurrence(clock,days,now) if days else clock_target(clock).timestamp()
+            updates={'repeat_days':json.dumps(days) if days else None,'alarm_time':clock,'due':deadline,'status':'active','next_due':None}
+            answer=label+': '+repeat_label(updates)+'.'
         elif action in ('add','subtract','snooze'):
             if action=='snooze' and kind=='alarm' and row['status']!='ringing':
                 return label+' is not ringing. Change its clock time to reschedule it.'
@@ -195,6 +222,8 @@ class Schedule:
             remaining=seconds if action=='snooze' else current+(seconds if action=='add' else -seconds)
             if remaining<=0 or (kind=='timer' and remaining>604800):raise ValueError('That would leave no time or exceed the countdown limit. Nothing was changed.')
             updates=({'remaining':remaining} if row['status']=='paused' else {'due':now+remaining,'status':'active'})
+            if kind=='alarm' and weekdays(row) and not row['next_due']:
+                updates['next_due']=next_occurrence(row['alarm_time'],weekdays(row),now)
             if kind=='timer' and row['status']=='ringing':updates['duration']=remaining
             answer=f'{label} '+('snoozed for ' if action=='snooze' else 'now has ')+duration(remaining)+(' left.' if action!='snooze' else '.')
         else:raise ValueError('Unsupported schedule action.')
@@ -213,6 +242,14 @@ class Schedule:
         suffix=re.search(r'\s+on (?:the |my )?(pc|computer|pi|raspberry pi|browser)$',low)
         if suffix:
             scope={'computer':'pc','raspberry pi':'pi'}.get(suffix[1],suffix[1]);low=low[:suffix.start()]
+        m=re.fullmatch(r'(?:make|set|change) (.*?alarm(?: number \w+)?) (?:to )?repeat (.+)',low)
+        if not m:m=re.fullmatch(r'repeat (.*?alarm(?: number \w+)?) (.+)',low)
+        if m:
+            _,days,specified=repeat_clause(m[2])
+            if not specified:raise ValueError('Say repeat alarm number 1 every weekday, or every Monday and Friday.')
+            return self.modify(m[1],'alarm','repeat',source,days,scope)
+        m=re.fullmatch(r'(?:stop repeating|remove repetition from|make one time) (.*?alarm(?: number \w+)?)',low)
+        if m:return self.modify(m[1],'alarm','repeat',source,[],scope)
         if low in ('list timers','what timers are running','timers','show my timers','list my timers',
                    'list alarms','alarms','what alarms are set','what alarms do i have','list my alarms',
                    'list timers and alarms','what timers and alarms do i have'):
@@ -221,13 +258,17 @@ class Schedule:
             if kind is None:rows=[r for r in rows if r['kind'] in ('timer','alarm')]
             if len(rows)==1:self.remember(rows[0],source)
             return '; '.join(self.describe(r) for r in rows) or ('No alarms are set.' if kind=='alarm' else 'No active timers.' if kind=='timer' else 'No timers or alarms are set.')
-        m=re.fullmatch(r'(?:cancel|delete|stop|dismiss|silence|turn off) (?:all (?:my |the )?)(timers|alarms|timers and alarms)',low)
+        m=re.fullmatch(r'(cancel|delete|stop|dismiss|silence|turn off) (?:all (?:my |the )?)(timers|alarms|timers and alarms)',low)
         if m:
-            kinds=('timer','alarm') if m[1]=='timers and alarms' else (m[1][:-1],)
+            kinds=('timer','alarm') if m[2]=='timers and alarms' else (m[2][:-1],)
             rows=[r for r in self.rows(source=scope) if r['kind'] in kinds]
+            if m[1] not in ('cancel','delete'):
+                rows=[r for r in rows if r['status']=='ringing']
+                for row in rows:self.modify(str(row['number']),row['kind'],'dismiss',source,scope=row['source'])
+                return f'Dismissed {len(rows)} ringing '+m[2]+'.'
             with self.app.lock,self.app.db:
                 for r in rows:self.app.db.execute("UPDATE timers SET status='cancelled' WHERE id=?",(r['id'],))
-            return f'Cancelled {len(rows)} '+m[1]+'.'
+            return f'Cancelled {len(rows)} '+m[2]+'.'
         m=re.fullmatch(r'(?:add|extend(?: by)?) (.+?) (?:to|on) (.*?(?:timer|alarm)(?: (?:number )?\w+)?)',low)
         if m:return self.modify(m[2],'alarm' if re.search(r'\balarm\b',m[2]) else 'timer','add',source,m[1],scope)
         m=re.fullmatch(r'extend (.*?(?:timer|alarm)(?: number \w+)?) by (.+)',low)
@@ -267,7 +308,7 @@ class Schedule:
         if m:
             action,selector,value=m.groups();kind='alarm' if re.search(r'\balarm\b',selector) else 'timer'
             action={'delete':'cancel','silence':'dismiss','turn off':'dismiss'}.get(action,action)
-            if action=='stop':action='dismiss' if selector in ('alarm','the alarm','my alarm') else 'cancel'
+            if action=='stop':action='dismiss' if kind=='alarm' else 'cancel'
             if action=='snooze':value=value or 'ten minutes'
             return self.modify(selector,kind,action,source,value,scope)
         m=re.fullmatch(r'(?:how much time is (?:left|remaining)(?: on)?|time left on|when does|when will) (.*?timer(?: number \w+)?)(?: (?:finish|end))?',low)
@@ -285,9 +326,9 @@ class Schedule:
         alarm=re.sub(r'^wake me(?: up)? (?:at|by)\s+','set alarm for ',low)
         m=re.fullmatch(r'(?:set|create|start) (?:a |an |my |the )?(?:(.*?) )?alarm(?: (?:called|named) (.+?))? (?:for|at) (.+?)(?: (?:called|named) (.+))?',alarm)
         if m:
-            before,named,clock,after=m.groups();target=clock_target(clock)
-            row=self.create(after or named or before or '',(target-dt.datetime.now()).total_seconds(),'alarm',scope or source,target.timestamp())
-            return 'Alarm set for '+target.strftime('%A %I:%M %p')+f': {self.label(row)}. The PC must remain awake.'
+            before,named,clock,after=m.groups();clock,days,_=repeat_clause(clock);target=clock_target(clock)
+            row=self.create(after or named or before or '',(target-dt.datetime.now()).total_seconds(),'alarm',scope or source,target.timestamp(),days)
+            return 'Alarm set for '+dt.datetime.fromtimestamp(row['due']).strftime('%A %I:%M %p')+f': {self.label(row)}.'+(' '+repeat_label(row)+'.' if days else '')+' The PC must remain awake.'
         if re.fullmatch(r'(?:set|start|create|change|edit|reset) (?:a |an |my |the )?(?:timer|alarm)',low):
             return ('Say set a timer for five minutes, or change timer number 1 to ten minutes.' if 'timer' in low else
                     'Say set an alarm for 7:30 am, or change alarm number 1 to 8 am.')

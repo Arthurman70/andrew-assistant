@@ -98,10 +98,12 @@ class Andrew:
             self.db.execute('DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT 200)')
 
     def status(self):
+        from feature_alarm_recurrence import repeat_label, weekdays
         with self.lock:
             timers = [dict(r) for r in self.db.execute("SELECT * FROM timers WHERE status IN ('active','ringing','paused') ORDER BY due")]
             for row in timers:
-                row['clock_time']=dt.datetime.fromtimestamp(row['due']).strftime('%H:%M')
+                row['clock_time']=(row.get('alarm_time') if weekdays(row) else None) or dt.datetime.fromtimestamp(row['due']).strftime('%H:%M')
+                row['repeat_label']=repeat_label(row)
                 row['due_display']=dt.datetime.fromtimestamp(row['due']).strftime('%a, %b %d · %I:%M %p')
             events = [dict(r) for r in self.db.execute('SELECT * FROM events ORDER BY id DESC LIMIT 12')]
         return {k: self.get(k) for k in ('name', 'provider', 'local_model', 'openai_model', 'claude_model', 'camera_mode', 'pc_speech')} | {
@@ -112,9 +114,8 @@ class Andrew:
 
     def due(self, now=None):
         now = time.time() if now is None else now
-        with self.lock, self.db:
-            rows = self.db.execute("SELECT * FROM timers WHERE status='active' AND due<=?", (now,)).fetchall()
-            self.db.execute("UPDATE timers SET status='ringing' WHERE status='active' AND due<=?", (now,))
+        from feature_alarm_recurrence import tick
+        rows=tick(self,now)
         messages = [{'text':('Reminder: '+r['name'] if r['kind']=='reminder' else
                              self.schedule.label(r)+' is ringing.' if r['kind']=='alarm' else
                              self.schedule.label(r)+' is finished.'), 'source':r['source'] or 'pc'} for r in rows]

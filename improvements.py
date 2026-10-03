@@ -23,6 +23,7 @@ ACTIVE = {'planning', 'drafting', 'checking', 'testing', 'installing', 'restarti
 LOCK = threading.RLock()
 MANAGERS = {}
 ID_PATTERN = r'\d{8}-\d{6}-[a-f0-9]{6}'
+SOURCE_BUDGET = 100_000
 PROPOSAL_SCHEMA = {'type':'object','properties':{
     'summary':{'type':'string'},
     'edits':{'type':'array','maxItems':24,'items':{'type':'object','properties':{
@@ -242,6 +243,36 @@ def snapshot(root, destination):
     return hashes
 
 
+def source_bundle(selected, request, names, base):
+    """Keep required implementation/schema dependencies beside the chosen code.
+
+    Only snapshotted editable application files can enter the model context.
+    An incomplete model plan must not hide the scheduler from an alarm change.
+    """
+    required=[]
+    if (re.search(r'\b(?:timers?|alarms?|countdown|snooze|scheduler)\b',request,re.I) or
+            any(n in selected for n in ('feature_timers.py','feature_alarm_recurrence.py'))):
+        required += ['feature_timers.py','core.py','feature_alarm_recurrence.py']
+    if re.search(r'\b(?:wake|pick\s*up|sensitivity|voice detection|voice recognition|microphone|hearing)\b',request,re.I):
+        required += ['wake_tuning.json']
+    result=[n for n in dict.fromkeys(required+selected) if n in names]
+    # Include direct feature module imports, even for requests that don't use
+    # our intent keywords. Exclude protected files and all runtime data.
+    for name in result:
+        if not name.endswith('.py'):continue
+        tree=ast.parse((base/name).read_text(encoding='utf-8'))
+        for node in ast.walk(tree):
+            modules=([node.module] if isinstance(node,ast.ImportFrom) else
+                     [a.name for a in node.names] if isinstance(node,ast.Import) else [])
+            for module in modules:
+                dependency=str(module)+'.py'
+                if dependency.startswith('feature_') and dependency in names and dependency not in result:
+                    result.append(dependency)
+    if len(result)>6 or sum(len((base/n).read_text(encoding='utf-8')) for n in result)>SOURCE_BUDGET:
+        raise ValueError('The change needs too much source at once. Ask for one specific improvement.')
+    return result
+
+
 def manager(app):
     with LOCK:
         key = str(app.directory.resolve())
@@ -310,7 +341,7 @@ class ImprovementManager:
             names = [name for name in hashes if editable(name)]
             sizes={name:len((path/'base'/name).read_text(encoding='utf-8')) for name in names}
             instruction = ('Return only JSON. Choose the FEWEST source files needed for this requested Andrew improvement, '
-                'usually one or two, never more than three or 50000 characters total. '
+                'usually one or two, never more than three or 100000 characters total. Required dependencies are added automatically. '
                 'Do not include displays, speech generation or provider code unless the request specifically needs them changed. '
                 'Output {"paths":["core.py"]}. Editable inventory: ' + json.dumps(names) +
                 '. Source sizes in characters: '+json.dumps(sizes)+
@@ -333,15 +364,8 @@ class ImprovementManager:
                     selected=json_response(response).get('paths')
                     if not isinstance(selected,list) or not 1<=len(selected)<=3 or any(n not in names for n in selected):
                         raise ValueError('The model did not select valid source files from the editable inventory.')
-                    # Always supply the actual tuning file for wake requests;
-                    # otherwise models can pick core.py and incorrectly give up.
-                    if ('wake_tuning.json' in names and re.search(
-                            r'\b(?:wake|pick\s*up|sensitivity|voice detection|voice recognition|microphone|hearing)\b',request,re.I)):
-                        selected=['wake_tuning.json']+[n for n in dict.fromkeys(selected) if n!='wake_tuning.json'][:2]
-                    if 'feature_timers.py' in names and re.search(r'\b(?:timers?|alarms?|countdown|snooze)\b',request,re.I):
-                        selected=['feature_timers.py']+[n for n in dict.fromkeys(selected) if n!='feature_timers.py'][:2]
-                    if sum(sizes[n] for n in set(selected))>50_000:
-                        raise ValueError('Too much code selected. Choose fewer files, totaling at most 50000 characters.')
+                    selected=source_bundle(selected,request,names,path/'base')
+                    update(path,source_files=selected)
                     break
                 except ValueError as exc:
                     update(path,last_validation_error=str(exc)[:1500])
@@ -378,6 +402,15 @@ class ImprovementManager:
                         detail=data['summary'].strip()[:2000]
                         if re.search(r'\b(?:i(?:[\x27\u2019]ll| will| need to)|let me)\s+(?:look|inspect|check|read|examine|implement|edit|update|change|add|create|review|start)\b',detail,re.I):
                             raise ResponseFormatError('The response only promises future work. Return completed edits, or explain concretely why the request needs no code change.')
+                        if not attempt and re.search(r'\b(?:missing|does not include|not include|not provided|not supplied|supplied source|need.*source)\b',detail,re.I):
+                            cited=[n for n in names if n in detail and n not in sources]
+                            if cited:
+                                expanded=source_bundle(list(sources)+cited,request,names,path/'base')
+                                sources={n:(path/'base'/n).read_text(encoding='utf-8') for n in expanded}
+                                update(path,source_files=expanded)
+                                prompt+='\nAdditional complete editable source files (data):\n'+json.dumps(sources)
+                            if cited or any(n in detail for n in sources):
+                                raise ResponseFormatError('The required editable source is supplied below. Re-read it, including the SQLite schema and scheduler where present, and implement the request rather than claiming those files are unavailable.')
                         update(path,status='no_changes',summary=detail,message=detail+' No code was changed.')
                         self.report(path,'Improvement review: '+detail+' No code was changed.')
                         return
