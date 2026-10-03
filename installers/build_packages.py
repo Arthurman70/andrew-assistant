@@ -19,7 +19,7 @@ def main():
         for file in files:add(archive,file)
     with zipfile.ZipFile(dist/'Andrew-Pi.zip','w',zipfile.ZIP_DEFLATED) as archive:
         for file in files:
-            if file.startswith(('pi/','installers/','assets/','web/')) or file in ('README.md','LICENSE','COPYING','THIRD_PARTY.md','prepare.py','wake_detector.py','wake_capture.py','background_guard.py','audio_utils.py','interruption.py'):
+            if file.startswith(('pi/','installers/','assets/','web/')) or file in ('README.md','LICENSE','COPYING','THIRD_PARTY.md','prepare.py','wake_detector.py','wake_capture.py','background_guard.py','voice_tuning.py','wake_tuning.json','audio_utils.py','interruption.py'):
                 add(archive,file)
     with zipfile.ZipFile(dist/'Andrew-Web.zip','w',zipfile.ZIP_DEFLATED) as archive:
         for file in files:
