@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parent
 CREATE_HIDDEN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 LOGIN_LOCK = threading.Lock()
 LOGIN_PROCESS = None
+AUTH_CACHE={'at':0,'value':None}
 MODELS = [{'id': '', 'label': 'Claude account default'},
           {'id': 'haiku', 'label': 'Haiku · quicker replies'},
           {'id': 'sonnet', 'label': 'Sonnet · balanced'},
@@ -36,7 +37,8 @@ def environment():
     return env
 
 
-def status():
+def status(refresh=False):
+    if not refresh and AUTH_CACHE['value'] and time.monotonic()-AUTH_CACHE['at']<60:return dict(AUTH_CACHE['value'])
     exe = executable()
     if not exe:
         return {'ready': False, 'state': 'missing', 'detail': 'Claude Code needs to be installed.'}
@@ -46,7 +48,8 @@ def status():
         auth = json.loads(result.stdout.lstrip('\ufeff'))
         ready = bool(auth.get('loggedIn') and auth.get('authMethod') == 'claude.ai')
         if ready:
-            return {'ready': True, 'state': 'ready', 'detail': 'Connected through your Claude subscription.'}
+            result={'ready': True, 'state': 'ready', 'detail': 'Connected through your Claude subscription.'}
+            AUTH_CACHE.update(at=time.monotonic(),value=result);return result
         return {'ready': False, 'state': 'sign_in',
                 'detail': 'Connect your Claude subscription. Signing into the Claude desktop app alone does not connect Andrew.'}
     except (ValueError, OSError, subprocess.TimeoutExpired):
@@ -57,6 +60,7 @@ def status():
 def connect():
     global LOGIN_PROCESS
     with LOGIN_LOCK:
+        AUTH_CACHE.update(at=0,value=None)
         if LOGIN_PROCESS is not None and LOGIN_PROCESS.poll() is None:
             return 'Claude sign-in is already open. Finish it in your browser, then refresh the connection.'
         exe = executable()
@@ -90,7 +94,7 @@ def record(kind, detail, model):
         pass
 
 
-def chat(system, prompt, model='', timeout=150, images=None):
+def chat(system, prompt, model='', timeout=150, images=None, retry=True):
     connection = status()
     if not connection['ready']:
         raise ClaudeError(connection['detail'])
@@ -108,7 +112,7 @@ def chat(system, prompt, model='', timeout=150, images=None):
         content=[{'type':'text','text':prompt}]+[{'type':'image','source':{'type':'base64',
             'media_type':'image/jpeg','data':base64.b64encode(Path(p).read_bytes()).decode()}} for p in images]
         prompt=json.dumps({'type':'user','message':{'role':'user','content':content}})+'\n'
-    for attempt in (1, 2):
+    for attempt in ((1,2) if retry else (1,)):
         try:
             proc = subprocess.run(args, input=prompt, cwd=work, env=environment(),
                 capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=timeout,
@@ -132,8 +136,9 @@ def chat(system, prompt, model='', timeout=150, images=None):
             kind, detail = 'temporary', 'Claude took too long to answer. Try a smaller request or another model.'
         except OSError:
             kind, detail = 'client', 'The Claude client could not start. Its connection needs repair.'
-        if kind == 'temporary' and attempt == 1:
+        if retry and kind == 'temporary' and attempt == 1:
             time.sleep(.5)
             continue
+        if kind=='auth':AUTH_CACHE.update(at=0,value=None)
         record(kind, detail, model)
         raise ClaudeError(detail)

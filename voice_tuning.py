@@ -3,8 +3,8 @@ import json
 import math
 from pathlib import Path
 
-DEFAULTS = {'keyword_score':2.2, 'keyword_threshold':.22,
-            'quiet_foreground_ratio':1.15, 'quiet_min_rms':32}
+DEFAULTS = {'keyword_score':2.35, 'keyword_threshold':.20,
+            'quiet_foreground_ratio':1.12, 'quiet_min_rms':30}
 LIMITS = {'keyword_score':(1.5,3), 'keyword_threshold':(.18,.5),
           'quiet_foreground_ratio':(1.1,1.5), 'quiet_min_rms':(30,60)}
 

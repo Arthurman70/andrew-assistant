@@ -23,6 +23,7 @@ COMMANDS={
  'game.move':{'move':'e2 to e4 / knight to f3 / square 5 / answer'},
  'memory.save':{'topic':'short topic','value':'explicitly stated fact or preference'},
  'memory.read':{},
+ 'memory.compact':{},
  'profile.identify':{'name':'name explicitly given by the user'},
  'weather':{'city':'city, or empty for previous city'},
  'news':{},
@@ -30,7 +31,7 @@ COMMANDS={
  'routine.save':{'name':'short routine name','commands':'one to six local timer, volume, lights or thermostat commands separated by semicolons'},
  'camera.command':{'command':'turn on camera / stop camera / take a photo / record a video for 10 seconds / send the latest photo to Claude'},
  'home.command':{'command':'requested lights, thermostat, music, or media action'},
- 'pc.task':{'request':'requested supported browser/PC task'},
+ 'pc.task':{'request':'requested desktop/browser/app task; can use installed programs, AI apps, or create/edit documents'},
  'device.command':{'command':'open browser on the Pi / close browser on the Pi / set a valid alarm / switch to Claude Sonnet / rename yourself to Alex'},
  'voice.draft_text':{'recipient':'contact name or phone number','message':'exact message requested by the user'},
  'voice.draft_call':{'recipient':'contact name or phone number'},
@@ -68,6 +69,8 @@ def system_prompt(app,provider,source):
       'the app executes and supplies the actual result. No shell, built-in tools, arbitrary code, or invented commands. '
       'Return ONLY one JSON object: {"reply":"brief spoken answer or empty when executing",'
       '"commands":[{"name":"catalog command","args":{}}]}. Use commands=[] for ordinary conversation. '
+      'Before declaring a task impossible, evaluate the actual command catalog and desktop tools. Use pc.task for computer/app/build work, including using Claude or ChatGPT apps. '
+      'Try the most likely route, preserve progress, and continue unfinished work rather than asking the user to repeat it. Report an actual observed blocker honestly. '
       'Maximum four commands. Use the latest user request and recent conversation to resolve follow-ups. '
       'Model changes use model.select; showing an Andrew page uses app.show, not a PC browser task. '
       'For an explicit user request to improve yourself or your code, use improvement.request with the selected model. '
@@ -169,6 +172,7 @@ class Actions:
         if name=='game.move':return app.games.route(a['move'],source) or 'Say the move or answer for the current game.'
         if name=='profile.identify':return app.memory.identify(a['name'],source)
         if name=='memory.save':return app.memory.put(app.memory.current(source),a['topic'],a['value'])
+        if name=='memory.compact':return app.memory.conversation.compact(app.memory.current(source))
         if name=='memory.read':return app.memory.describe(app.memory.current(source))
         if name=='weather':return app.daily.weather(a['city'])
         if name=='news':return app.daily.news()

@@ -11,6 +11,8 @@ SENSITIVE=re.compile(r'password|passcode|secret|api.?key|token|credit card|socia
 class Memory:
     def __init__(self,app):
         self.app=app;self.active={};self.prompted={};self.extractor=None;self.extract_lock=threading.Lock()
+        from conversation_memory import ConversationMemory
+        self.conversation=ConversationMemory(app)
         self.voice_status='Ready to learn a named speaker';self.pending_enrollment={};self.guests={}
         with app.lock,app.db:
             app.db.executescript('''
@@ -119,19 +121,22 @@ class Memory:
         person=self.current(source)
         if not person:return 'Speaker is not identified. Do not assume an identity from the microphone device.'
         with self.app.lock:rows=self.app.db.execute('SELECT topic,value FROM memories WHERE person=? ORDER BY updated DESC LIMIT 20',(person,)).fetchall()
-        return json.dumps({'name':self.name(person),'preferences':[dict(r) for r in rows]},ensure_ascii=False)
+        return json.dumps({'name':self.name(person),'preferences':[dict(r) for r in rows],'conversation_summary':self.conversation.summary(person)},ensure_ascii=False)
 
     def snapshot(self):
         with self.app.lock:
             people=[dict(r) for r in self.app.db.execute('SELECT id,name FROM people ORDER BY name')]
             entries=[dict(r) for r in self.app.db.execute('SELECT id,person,topic,value,automatic FROM memories ORDER BY updated DESC LIMIT 100')]
         return {'people':people,'memories':entries,'active':{s:v for s,v in self.active.items() if time.time()-v['at']<900},
-                'automatic':bool(self.app.get('memory_auto')),'voice_status':self.voice_status}
+                'automatic':bool(self.app.get('memory_auto')),'voice_status':self.voice_status,
+                'conversations':{p['id']:self.conversation.stats(p['id']) for p in people}}
 
     def route(self,text,source):
         match=re.fullmatch(r'(?:my name is|this is|I am called|call me) ([A-Za-z][A-Za-z \-\']{0,39})',text,re.I)
         if match:return self.identify(match[1],source)
         low=text.lower();person=self.current(source)
+        if re.fullmatch(r'(?:compact|summarize|condense|compress) (?:my |your |our |the )?(?:memories|memory|conversations|conversation history)',low):
+            return self.conversation.compact(person)
         if low.startswith('learn my voice'):
             pending=self.pending_enrollment.get(source)
             if not person and pending and pending[1]>time.time():person=pending[0]
@@ -157,7 +162,10 @@ class Memory:
                 for table,column in [('memories','person'),('speaker_prints','person'),('people','id')]:
                     self.app.db.execute(f'DELETE FROM {table} WHERE {column}=?',(person,))
             self.active={s:v for s,v in self.active.items() if v['id']!=person};self.app.request.person=None
+            self.conversation.delete(person)
+            if self.app.pc_agent:self.app.pc_agent.memory.delete(person)
             self.app.conversations.clear()
+            self.app.request.memory_deleted=True
             return 'Your profile, saved preferences, and voice match were deleted.'
         match=re.fullmatch(r'remember (?:that )?(.+)',text,re.I)
         if match:
@@ -168,9 +176,11 @@ class Memory:
             if not person:return 'Tell me your name first.'
             with self.app.lock,self.app.db:
                 count=self.app.db.execute('DELETE FROM memories WHERE person=? AND (topic LIKE ? OR value LIKE ?)',(person,'%'+match[1]+'%','%'+match[1]+'%')).rowcount
-            self.app.conversations.clear();return 'Forgot that memory.' if count else 'I could not find that in your memories.'
+            self.conversation.delete(person);self.app.conversations.clear();self.app.request.memory_deleted=True;return 'Forgot that memory.' if count else 'I could not find that in your memories.'
         return None
 
     def describe(self,person):
         with self.app.lock:rows=self.app.db.execute('SELECT topic,value FROM memories WHERE person=? ORDER BY updated DESC',(person,)).fetchall()
-        return '; '.join(r['topic']+': '+r['value'] for r in rows) or 'I know your name, but have no saved preferences yet.'
+        summary=self.conversation.summary(person)
+        facts='; '.join(r['topic']+': '+r['value'] for r in rows)
+        return ('; '.join(part for part in (facts,summary[:2200]) if part) or 'I know your name, but have no saved preferences yet.')

@@ -7,6 +7,12 @@ from pathlib import Path, PurePosixPath
 import re
 
 ROLES={
+ 'app_commands.py':'fast installed app launching and narrowly scoped speech aliases',
+ 'conversation_memory.py':'per-person addressed chat archive and quiet 10000-word compaction',
+ 'task_memory.py':'verified task recipes and person-scoped restart checkpoints',
+ 'pc_agent.py':'selected-model desktop planner, alternate routes and automatic continuation',
+ 'pc_control.py':'observed Windows app controls, native and browser launches',
+ 'update_merge.py':'preserving local/self-improved code across official package upgrades',
  'core.py':'SQLite settings/schema, command routing, due scheduler, provider dispatch',
  'feature_timers.py':'timer/alarm naming, selection, edits, pause, snooze, recurrence commands',
  'feature_alarm_recurrence.py':'weekly calendar and alarm occurrence ticks',

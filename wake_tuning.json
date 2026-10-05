@@ -1,6 +1,1 @@
-{
-  "keyword_score": 2.2,
-  "keyword_threshold": 0.22,
-  "quiet_foreground_ratio": 1.15,
-  "quiet_min_rms": 32
-}
+{"keyword_score":2.35,"keyword_threshold":0.20,"quiet_foreground_ratio":1.12,"quiet_min_rms":30}

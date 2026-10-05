@@ -10,10 +10,15 @@ def main():
     files=subprocess.check_output(['git','ls-files','-z'],cwd=ROOT).decode().strip('\0').split('\0')
     for file in files:
         if any(part in ('data','runtime','.venv','downloads','.git') for part in Path(file).parts):raise ValueError('Private file in export: '+file)
+    def exported(name):
+        data=(ROOT/name).read_bytes()
+        return data.replace(b'\r\n',b'\n') if Path(name).suffix in ('.sh','.service') else data
+    registry={name:hashlib.sha256(exported(name)).hexdigest() for name in files if name!='package_manifest.json'}
+    (ROOT/'package_manifest.json').write_text(json.dumps({'files':registry},indent=2)+'\n',encoding='utf-8')
+    if 'package_manifest.json' not in files:files.append('package_manifest.json')
     dist=ROOT/'dist';dist.mkdir(exist_ok=True)
     def add(archive,file):
-        content=(ROOT/file).read_bytes()
-        if Path(file).suffix in ('.sh','.service'):content=content.replace(b'\r\n',b'\n')
+        content=exported(file)
         archive.writestr('Andrew/'+file,content)
     with zipfile.ZipFile(dist/'Andrew-Windows.zip','w',zipfile.ZIP_DEFLATED) as archive:
         for file in files:add(archive,file)

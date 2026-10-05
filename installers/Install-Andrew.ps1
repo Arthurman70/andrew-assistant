@@ -6,7 +6,19 @@ $Destination=[IO.Path]::GetFullPath($Destination)
 if ($Destination -eq [IO.Path]::GetPathRoot($Destination)) { throw 'Choose a dedicated Andrew folder.' }
 New-Item -ItemType Directory -Force -Path $Destination | Out-Null
 if ($source -ne $Destination) {
-    Get-ChildItem -LiteralPath $source | Where-Object { $_.Name -notin @('.git','.venv','data','runtime','downloads','dist','__pycache__') } | Copy-Item -Destination $Destination -Recurse -Force
+    $existingPython=Join-Path $Destination '.venv/Scripts/python.exe'
+    if (Test-Path $existingPython) {
+        & $existingPython (Join-Path $source 'update_merge.py') $source $Destination
+        if ($LASTEXITCODE -eq 2) { Write-Host 'Your improvements are preserved. This update needs a merge; details are saved in data/update-status.json.'; return }
+        if ($LASTEXITCODE -ne 0) { throw 'Update checks failed. Existing Andrew code was preserved.' }
+    } elseif (Test-Path (Join-Path $Destination 'server.py')) {
+        throw 'Use this existing installation’s Python runtime to merge the update. Existing improvements were not overwritten.'
+    } else {
+        Get-ChildItem -LiteralPath $source | Where-Object { $_.Name -notin @('.git','.venv','data','runtime','downloads','dist','__pycache__') } | Copy-Item -Destination $Destination -Recurse -Force
+        $baseline=Join-Path $Destination 'data/update-baseline'
+        New-Item -ItemType Directory -Force -Path $baseline | Out-Null
+        Get-ChildItem -LiteralPath $source | Where-Object { $_.Name -notin @('.git','.venv','data','runtime','downloads','dist','__pycache__') } | Copy-Item -Destination $baseline -Recurse -Force
+    }
 }
 New-Item -ItemType Directory -Force -Path (Join-Path $Destination 'data'),(Join-Path $Destination 'runtime'),(Join-Path $Destination 'data/tests') | Out-Null
 $pythonPath = $null
