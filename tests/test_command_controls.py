@@ -44,7 +44,7 @@ class ControlTests(unittest.TestCase):
                 self.assertEqual(self.app.command(phrase),'Testing')
             self.assertEqual(launch.call_count,4)
             self.app.request.action_internal=True
-            self.assertIn('your own install',self.app.command('install the latest improvement'))
+            self.assertIn('Ask for a self improvement directly',self.app.command('install the latest improvement'))
             self.assertEqual(launch.call_count,4)
 
     def test_model_selection_variants_resolve_and_persist_without_pc_agent(self):

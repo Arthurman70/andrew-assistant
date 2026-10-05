@@ -1,8 +1,4 @@
-"""Model-independent proposals with explicit review, checked install and rollback.
-
-Generation never executes candidate code. Test execution and installation need
-an install command or dashboard action. Capture/auth and the updater are protected.
-"""
+"""User-requested small patches, automatic checked installation and rollback."""
 import ast
 import difflib
 import hashlib
@@ -15,18 +11,19 @@ import shutil
 import subprocess
 import threading
 import time
+from code_map import source_name, inventory, cached_index, compact, context, explicit_selection
 
 ROOT = Path(__file__).resolve().parent
 EDITABLE = ('app.html', 'dashboard.html', 'pi/screen.html', 'core.py', 'local_commands.py', 'command_controls.py',
             'speech_engine.py', 'providers.py', 'claude_provider.py', 'grok_provider.py', 'wake_tuning.json')
-ACTIVE = {'planning', 'drafting', 'checking', 'testing', 'installing', 'restarting', 'rolling_back'}
+ACTIVE = {'planning', 'drafting', 'checking', 'repairing', 'testing', 'installing', 'restarting', 'rolling_back'}
 LOCK = threading.RLock()
 MANAGERS = {}
 ID_PATTERN = r'\d{8}-\d{6}-[a-f0-9]{6}'
 SOURCE_BUDGET = 100_000
 PROPOSAL_SCHEMA = {'type':'object','properties':{
     'summary':{'type':'string'},
-    'edits':{'type':'array','maxItems':24,'items':{'type':'object','properties':{
+    'edits':{'type':'array','maxItems':12,'items':{'type':'object','properties':{
         'path':{'type':'string'},'old':{'type':'string'},'new':{'type':'string'}},
         'required':['path','old','new'],'additionalProperties':False}},
     'files':{'type':'object','additionalProperties':{'type':'string'}}},
@@ -47,8 +44,7 @@ def digest(path):
 
 
 def editable(name):
-    return isinstance(name, str) and (name in EDITABLE or bool(re.fullmatch(
-        r'(?:feature_[a-z0-9_]+\.py|tests/test_feature_[a-z0-9_]+\.py)', name)))
+    return source_name(name)
 
 
 def safe_path(root, name):
@@ -135,7 +131,7 @@ def check_source(name, content):
         validate(json.loads(content))
     elif name.endswith('.py'):
         tree=ast.parse(content, filename=name)
-        if name.startswith('tests/test_feature_'):
+        if name.startswith('tests/test_'):
             cases=[node for node in tree.body if isinstance(node,ast.ClassDef) and any(
                 (isinstance(base,ast.Name) and base.id in ('TestCase','IsolatedAsyncioTestCase')) or
                 (isinstance(base,ast.Attribute) and base.attr in ('TestCase','IsolatedAsyncioTestCase')) for base in node.bases)]
@@ -145,8 +141,9 @@ def check_source(name, content):
     elif name.endswith('.html'):
         if '<html' not in content.lower() or '</html>' not in content.lower():
             raise ValueError('Candidate display must be a complete HTML document.')
-        if re.search(r'<script\b[^>]*\bsrc\s*=', content, re.I):
-            raise ValueError('Display changes cannot add external scripts.')
+        for src in re.findall(r'<script\b[^>]*\bsrc\s*=\s*[\x27\x22]([^\x27\x22]+)',content,re.I):
+            if src.startswith('//') or not source_name(src.lstrip('/')):
+                raise ValueError('Display scripts must be local application source files.')
         scripts = re.findall(r'<script\b[^>]*>(.*?)</script\s*>', content, re.I | re.S)
         node = shutil.which('node')
         if scripts and not node:
@@ -156,6 +153,31 @@ def check_source(name, content):
                 encoding='utf-8', timeout=20, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             if result.returncode:
                 raise ValueError('JavaScript syntax check failed for ' + name + ': ' + result.stderr[:1200])
+    elif name.endswith('.js'):
+        node=shutil.which('node')
+        if not node:raise ValueError('JavaScript syntax checking needs Node.js.')
+        result=subprocess.run([node,'--check'],input=content,capture_output=True,text=True,
+            encoding='utf-8',timeout=20,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        if result.returncode:raise ValueError('JavaScript syntax check failed: '+result.stderr[:1200])
+    elif name.endswith(('.json','.webmanifest')):
+        value=json.loads(content)
+        if name=='source_manifest.json' and (not isinstance(value,list) or any(not source_name(n) for n in value)):
+            raise ValueError('The source manifest can list only application code.')
+    elif name.endswith('.ps1'):
+        shell=shutil.which('powershell') or shutil.which('pwsh')
+        if not shell:raise ValueError('PowerShell syntax checking is unavailable.')
+        parse='$t=$null;$e=$null;[void][System.Management.Automation.Language.Parser]::ParseInput([Console]::In.ReadToEnd(),[ref]$t,[ref]$e);if($e.Count){$e|ForEach-Object{$_.Message};exit 1}'
+        result=subprocess.run([shell,'-NoProfile','-Command',parse],input=content,capture_output=True,text=True,timeout=20,
+            creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        if result.returncode:raise ValueError('PowerShell syntax check failed: '+result.stdout[:1200])
+    elif name.endswith('.sh'):
+        bash=shutil.which('bash')
+        bundled=Path('C:/Program Files/Git/bin/bash.exe')
+        if os.name=='nt' and bundled.exists():bash=str(bundled)
+        if not bash:raise ValueError('Shell syntax checking is unavailable.')
+        result=subprocess.run([bash,'--noprofile','--norc','-n'],input=content,capture_output=True,text=True,timeout=20,
+            creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        if result.returncode:raise ValueError('Shell syntax check failed: '+result.stderr[:1200])
 
 
 def stage_response(root, destination, response):
@@ -174,8 +196,8 @@ def stage_response(root, destination, response):
     files = dict(files)
     patched = {}
     edits = data.get('edits', [])
-    if not isinstance(edits, list) or len(edits) > 24:
-        raise ValueError('Use at most 24 exact replacements.')
+    if not isinstance(edits, list) or len(edits) > 12:
+        raise ValueError('Use at most 12 exact replacements.')
     for edit in edits:
         if not isinstance(edit, dict) or not editable(edit.get('path')):
             raise ValueError('Improvement tried to edit a protected file.')
@@ -192,9 +214,10 @@ def stage_response(root, destination, response):
         if name in files and files[name] != content:
             raise ValueError('The full file and exact edits disagree for '+name+'. Return only one consistent version.')
         files[name]=content
-    if not files or len(files) > 8:
+    if not files or len(files) > 4:
         raise ValueError('The model returned no changes or too many files. Ask for one smaller improvement.')
     validated, base_hashes, candidate_hashes, changes = {}, {}, {}, []
+    changed_lines=0;changed_bytes=0
     for name, content in files.items():
         if not editable(name):
             raise ValueError('Improvement tried to edit a protected file: ' + str(name))
@@ -205,12 +228,15 @@ def stage_response(root, destination, response):
         validated[name] = content
         base_hashes[name] = digest(path)
         candidate_hashes[name] = hashlib.sha256(content.encode('utf-8')).hexdigest()
-        changes.extend(difflib.unified_diff(before.splitlines(True), content.splitlines(True),
+        diff=list(difflib.unified_diff(before.splitlines(True), content.splitlines(True),
             fromfile='a/' + name, tofile='b/' + name))
+        modified=[line for line in diff if line.startswith(('+','-')) and not line.startswith(('+++','---'))]
+        changed_lines+=len(modified);changed_bytes+=sum(len(line.encode('utf-8')) for line in modified)
+        changes.extend(diff)
     if not validated:
         raise ValueError('The model returned unchanged files. No improvement was made.')
-    if sum(len(c.encode('utf-8')) for c in validated.values()) > 500_000:
-        raise ValueError('The proposal is too large. Ask for a smaller change.')
+    if changed_lines>300 or changed_bytes>24000:
+        raise ValueError('Keep this patch small: at most four files, 300 changed lines and 24000 changed bytes. Implement one useful part of the request.')
     destination.mkdir(parents=True, exist_ok=True)
     for name, content in validated.items():
         target = safe_path(destination / 'candidate', name)
@@ -220,16 +246,16 @@ def stage_response(root, destination, response):
     existing = read_json(destination / 'review.json') if (destination / 'review.json').exists() else {}
     save_review(destination, existing | {'summary': str(data.get('summary', 'Requested code change'))[:2000],
         'status': 'needs_review', 'live_files_changed': False, 'base_hashes': base_hashes,
-        'candidate_hashes': candidate_hashes, 'files': list(validated),
+        'candidate_hashes': candidate_hashes, 'files': list(validated),'changed_lines':changed_lines,
         'validation': 'Python and embedded JavaScript syntax checked without running candidate code. '
                       'Test and install runs regression tests in a separate copy before deployment.'})
 
 
 def source_paths(root):
     """Only application source and tests; never runtime, credentials, recordings or settings."""
-    return sorted(p.relative_to(root).as_posix() for pattern in
-        ('*.py', '*.html', 'wake_tuning.json', 'pi/*.py', 'pi/*.html', 'tests/test_*.py')
-        for p in root.glob(pattern) if p.is_file() and not p.is_symlink())
+    static=[p.relative_to(root).as_posix() for pattern in ('assets/*.png','assets/*.wav')
+            for p in root.glob(pattern) if p.is_file() and not p.is_symlink()]
+    return sorted(set(inventory(root)+static))
 
 
 def snapshot(root, destination):
@@ -268,7 +294,7 @@ def source_bundle(selected, request, names, base):
                 dependency=str(module)+'.py'
                 if dependency.startswith('feature_') and dependency in names and dependency not in result:
                     result.append(dependency)
-    if len(result)>6 or sum(len((base/n).read_text(encoding='utf-8')) for n in result)>SOURCE_BUDGET:
+    if len(result)>6:
         raise ValueError('The change needs too much source at once. Ask for one specific improvement.')
     return result
 
@@ -287,6 +313,7 @@ class ImprovementManager:
         self.folder = app.directory / 'improvements'
         self.folder.mkdir(parents=True, exist_ok=True)
         self.thread = None
+        self.install_lock=threading.RLock()
 
     def items(self):
         rows = []
@@ -295,7 +322,7 @@ class ImprovementManager:
                 data = read_json(path)
                 if not re.fullmatch(ID_PATTERN, path.parent.name): continue
                 rows.append({k: data[k] for k in ('id','status','summary','provider','model','files','message',
-                    'validation','created_at','updated_at','live_files_changed') if k in data})
+                    'validation','created_at','updated_at','live_files_changed','auto_install','changed_lines','repair_attempts','deployment_message') if k in data})
             except (ValueError, OSError): continue
         return rows
 
@@ -316,7 +343,7 @@ class ImprovementManager:
             try: self.notify(message, read_json(path / 'review.json').get('source', 'pc'))
             except Exception: pass
 
-    def request(self, request, source='pc', provider=None, model=None):
+    def request(self, request, source='pc', provider=None, model=None, auto_install=True):
         from providers import resolve
         provider, model, entry = resolve(self.app, provider, model)
         if not isinstance(request, str) or not 4 <= len(request.strip()) <= 4000:
@@ -328,23 +355,27 @@ class ImprovementManager:
             path.mkdir()
             save_review(path, {'id':path.name, 'status':'planning', 'summary':request,
                 'provider':provider, 'model':model, 'source':source, 'created_at':time.time(),
-                'message':'Choosing source files for the requested change.', 'live_files_changed':False})
+                'message':'Finding the relevant code in the cached map.', 'live_files_changed':False,
+                'auto_install':auto_install is True,'repair_attempts':0})
             (path / 'request.txt').write_text(request, encoding='utf-8')
             self.thread = threading.Thread(target=self.generate, args=(path,request,provider,model), daemon=True)
             self.thread.start()
-        return f'I am preparing that improvement with {entry["label"]}, {model or "the account default"}. I will tell you when it is ready to review.'
+        return (f'I am making that improvement with {entry["label"]}, {model or "the account default"}. '
+                +('I will test and install a small patch automatically, then report the result. Undo will be available.'
+                  if auto_install is True else 'I will leave the patch ready for review without installing it.'))
 
-    def generate(self, path, request, provider, model):
+    def generate(self, path, request, provider, model, repair=False):
         try:
-            hashes = snapshot(self.root, path)
-            update(path, snapshot_hashes=hashes)
+            hashes=read_json(path/'review.json')['snapshot_hashes'] if repair else snapshot(self.root,path)
+            update(path,snapshot_hashes=hashes)
+            index=cached_index(self.root,self.folder/'code-map-cache.json')
             names = [name for name in hashes if editable(name)]
-            sizes={name:len((path/'base'/name).read_text(encoding='utf-8')) for name in names}
+            selectors=names+[name+'::'+symbol for name in names for symbol in index.get(name,{}).get('symbols',{})
+                             if index[name]['size']>12000]
             instruction = ('Return only JSON. Choose the FEWEST source files needed for this requested Andrew improvement, '
                 'usually one or two, never more than three or 100000 characters total. Required dependencies are added automatically. '
-                'Do not include displays, speech generation or provider code unless the request specifically needs them changed. '
-                'Output {"paths":["core.py"]}. Editable inventory: ' + json.dumps(names) +
-                '. Source sizes in characters: '+json.dumps(sizes)+
+                'Use path::Class.method or path::function for a focused change in a large file. '
+                'Output {"paths":["core.py::Andrew.command"]}. Application code map: '+json.dumps(compact(index,request))+
                 '. feature_timers.py owns timer/alarm creation, names, stable numbers, selection, edits, pause/resume and snooze. '
                 'core.py owns the due scheduler tick and general command routing; timer/alarm intent changes need feature_timers.py. '
                 'command_controls.py owns model selection phrases, Andrew page navigation and ordered local command chains. '
@@ -353,44 +384,56 @@ class ImprovementManager:
                 'wake_tuning.json owns bounded wake-word sensitivity: keyword_score 1.5..3 (higher is easier), '
                 'keyword_threshold 0.18..0.5 (lower is easier), quiet_foreground_ratio 1.1..1.5 and '
                 'quiet_min_rms 30..60 (lower is easier). Choose it for voice pickup or wake sensitivity. '
-                'You may later create feature_NAME.py and tests/test_feature_NAME.py. '
-                'Capture, wake-only ASR gates, background/media filtering, server authentication, update machinery, '
-                'credentials and dependency installation are protected. Only the bounded wake settings are editable. Request: ' + request)
+                'All application code can be improved, including capture, providers, UI, server and update code. '
+                'Runtime data, settings, credentials, keys, recordings and model weights are outside the code inventory. '
+                'Preserve wake-only transcription and account billing. Request: ' + request)
             selection_prompt=instruction
-            for attempt in range(2):
+            selected=read_json(path/'review.json').get('source_selectors',[]) if repair else explicit_selection(request,index)
+            if selected and not repair:
+                bundled=source_bundle([s.split('::')[0] for s in selected],request,names,path/'base')
+                selected += [n for n in bundled if n not in [s.split('::')[0] for s in selected]]
+                update(path,source_files=bundled,source_selectors=selected,planning_attempts=0)
+            for attempt in ([] if selected else range(2)):
                 update(path,planning_attempts=attempt+1)
-                response=self.app.ai(selection_prompt,provider,model,purpose='improvement',response_schema=planning_schema(names))
+                response=self.app.ai(selection_prompt,provider,model,purpose='improvement',response_schema=planning_schema(selectors))
                 try:
                     selected=json_response(response).get('paths')
-                    if not isinstance(selected,list) or not 1<=len(selected)<=3 or any(n not in names for n in selected):
+                    if not isinstance(selected,list) or not 1<=len(selected)<=3 or any(n not in selectors for n in selected):
                         raise ValueError('The model did not select valid source files from the editable inventory.')
-                    selected=source_bundle(selected,request,names,path/'base')
-                    update(path,source_files=selected)
+                    bundled=source_bundle([n.split('::')[0] for n in selected],request,names,path/'base')
+                    selected += [n for n in bundled if n not in [s.split('::')[0] for s in selected]]
+                    update(path,source_files=bundled,source_selectors=selected)
                     break
                 except ValueError as exc:
                     update(path,last_validation_error=str(exc)[:1500])
                     if attempt:raise ValueError(f'{provider.title()} could not prepare the file selection after two attempts. '+str(exc)) from exc
                     selection_prompt=correction(instruction,response,exc)
                     update(path,message='Retrying the source selection with the required response format.')
-            sources = {n:(path/'base'/n).read_text(encoding='utf-8') for n in dict.fromkeys(selected)}
+            sources=context(path/'base',selected,index,request)
             if sum(map(len, sources.values())) > 100_000:
                 raise ValueError('Too much code selected. Ask for a smaller improvement.')
             prompt = ('Return only JSON with summary (string), edits (array of {path,old,new} exact unique text replacements), '
-                'and files (object, only for complete new feature_NAME.py or tests/test_feature_NAME.py files). '
+                'and files (object, only for complete new application source files or small JSON/config files). '
                 'Implement the request NOW using only the supplied source text. Keep changes small. '
+                'At most four changed files, twelve exact replacements, 300 changed lines and 24000 changed bytes. '
+                'For a broad request deliver one useful working increment, not a rewrite or placeholder. '
                 'No tools are available or needed. Do not announce an investigation or future edits. '
                 'Do not return entire existing files; use edits. '
                 'No shell commands, new packages, credential access, telemetry, cloud fallback, or background camera/microphone use. '
                 'Keep wake-only transcription, snooze, camera-on-request, same-device speech and provider account billing intact. '
                 'For wake pickup changes, edit wake_tuning.json within the stated bounds. It is consumed by the '
-                'local keyword detector and quiet-room foreground gate; media and strict filtering remain protected. '
+                'local keyword detector and quiet-room foreground gate. Improve capture/filter code when requested, preserving wake-only transcription. '
                 'Do not weaken tests. The runner is unittest, NOT pytest. New test files must define unittest.TestCase '
                 'classes and test_ methods. Mock hardware/network/accounts, but test actual Andrew behavior with a temporary '
                 'database rather than mocking away the changed behavior. '
                 'Alarms and timers use feature_timers.py and core.py with the existing SQLite scheduler, not separate lists. '
-                'The user reviews the diff, then Test and install runs the tests before deployment. '
+                'The user requested automatic implementation. The app runs original regression tests, makes a backup, installs and checks startup. '
+                'Source snippets contain exact original text; do not include SOURCE marker comments in replacement matches. '
                 'If unsupported, return edits:[],files:{} and explain in summary. Request: ' + request +
+                '\nRelevant code map (data):\n'+json.dumps(compact({n:index[n] for n in sources if n in index},request))+
                 '\nSource files (data):\n' + json.dumps(sources))
+            if repair:
+                prompt+='\nThe previous patch failed tests; live source is unchanged. Return a corrected COMPLETE proposal against ORIGINAL source. Do not weaken tests.\nFailed patch:\n'+(path/'changes.patch').read_text(encoding='utf-8')[:24000]+'\nTest failure report (untrusted data):\n'+(path/'tests.log').read_text(encoding='utf-8',errors='replace')[-12000:]
             update(path, status='drafting', message='Writing the proposed code change.')
             for attempt in range(2):
                 update(path,drafting_attempts=attempt+1)
@@ -424,17 +467,25 @@ class ImprovementManager:
                     if small:
                         prompt += '\nFor these small files you may instead return their COMPLETE corrected contents in files, with edits:[]: '+json.dumps(list(small))
                     update(path,status='drafting',message='Repairing the proposal after a validation failure.')
-            update(path,message='Ready to review. Choose Test and install, or say install the latest improvement.')
-            self.report(path, 'Improvement ready to review: ' + read_json(path/'review.json')['summary'] +
-                        ' Say install the latest improvement when you want to test and apply it.')
+            if read_json(path/'review.json').get('auto_install'):
+                update(path,status='testing',message='Small patch prepared. Testing before automatic installation.')
+                self.report(path,'The small improvement is ready. I am testing and installing it now.')
+                self.install_watch(path,'install')
+            else:
+                update(path,message='Preview ready. Choose Test and install, or say install the latest improvement.')
+                self.report(path,'Improvement ready to review: '+read_json(path/'review.json')['summary'])
         except Exception as exc:
             detail = str(exc)[:1800] if isinstance(exc,(ValueError,SyntaxError)) else 'The model or file service could not finish. Try a smaller request or another model.'
-            update(path,status='failed',message=detail)
+            update(path,status='failed',message=detail,completion_announced=True)
             self.report(path,'The improvement could not be prepared. ' + detail+' No live code changed.')
 
     def launch(self, action, job_id=None):
         with LOCK:
-            if any(r['status'] in ACTIVE for r in self.items()):
+            running=next((r for r in self.items() if r['status'] in ACTIVE),None)
+            if running:
+                if action=='install' and (not job_id or job_id=='latest' or job_id==running['id']):
+                    update(self.get(running['id']),auto_install=True)
+                    return 'That improvement is already underway. It will be tested and installed automatically; you do not need to approve it again.'
                 raise ValueError('Another improvement operation is still running.')
             statuses = {'needs_review'} if action=='install' else {'installed'}
             # "Latest" means the latest request, not a silent search backwards
@@ -447,26 +498,87 @@ class ImprovementManager:
                 raise ValueError('The latest improvement is '+data['status'].replace('_',' ')+'. '+data.get('message','')+' No older proposal was installed.')
             if action=='install' and not data.get('snapshot_hashes'):
                 raise ValueError('This older proposal has no source snapshot. Request it again before installing.')
-            update(path,status='testing' if action=='install' else 'rolling_back',
+            update(path,status='testing' if action=='install' else 'rolling_back',auto_install=action=='install',
                    message='Running tests before installation.' if action=='install' else 'Restoring the saved version.')
-            try:
-                subprocess.Popen([str(self.root/'.venv/Scripts/pythonw.exe'),str(self.root/'improvement_installer.py'),
-                    action,path.name,str(os.getpid())],cwd=self.root,stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
-                    creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-            except Exception:
-                update(path,status=data['status'],message='The updater could not start. No files changed.')
-                raise ValueError('The updater could not start. No files changed.')
+            self.thread=threading.Thread(target=self.install_watch,args=(path,action),daemon=True)
+            self.thread.start()
         return 'I am testing that improvement before installing it. I will briefly reconnect if the checks pass.' if action=='install' else 'I am restoring the previous version. I will briefly reconnect.'
+
+    def installer_process(self,path,action):
+        # Freeze the currently working updater before model edits can replace
+        # it. That process can restore even a broken replacement of itself.
+        runner=path/('runner-'+secrets.token_hex(4));runner.mkdir()
+        for name in ('improvement_installer.py','improvements.py','code_map.py','voice_tuning.py','web_sync.py'):
+            shutil.copyfile(self.root/name,runner/name)
+        (runner/'run.py').write_text('import sys\nfrom pathlib import Path\nfrom improvement_installer import execute\nexecute(sys.argv[1],Path(sys.argv[2]),int(sys.argv[3]),Path(sys.argv[4]))\n',encoding='utf-8')
+        with (path/'installer.log').open('a',encoding='utf-8') as log:
+            return subprocess.Popen([str(self.root/'.venv/Scripts/pythonw.exe'),str(runner/'run.py'),
+                action,str(path.resolve()),str(os.getpid()),str(self.root.resolve())],cwd=self.root,
+                stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,
+                creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+
+    def install_watch(self,path,action):
+        with self.install_lock:
+            if read_json(path/'review.json')['status'] not in {'testing','rolling_back'}:return
+            self._install_watch(path,action)
+
+    def _install_watch(self,path,action):
+        try:
+            process=self.installer_process(path,action)
+            update(path,installer_pid=process.pid)
+            process.wait(timeout=600)
+            review=read_json(path/'review.json')
+            if review['status']=='failed' and action=='install' and 'Regression tests failed' in review.get('message','') and review.get('repair_attempts',0)<1:
+                update(path,status='repairing',repair_attempts=1,message='Tests found a problem. Repairing the small patch automatically; live code is unchanged.')
+                self.report(path,'The tests caught a problem. I am repairing the patch and trying once more.')
+                work=path/'test-work'
+                if work.exists():work.rename(path/'test-work-attempt-1')
+                if (path/'tests.log').exists():shutil.copyfile(path/'tests.log',path/'tests-attempt-1.log')
+                self.generate(path,(path/'request.txt').read_text(encoding='utf-8'),review['provider'],review['model'],repair=True)
+                return
+            if review['status'] in ACTIVE:
+                update(path,status='failed',message='The updater exited before completion. No successful installation was confirmed; see the installer report.')
+            self.notify_completed()
+        except Exception as exc:
+            # Do not silently leave a testing/approval spinner if the updater
+            # cannot launch. Never terminate a possibly installing worker.
+            if isinstance(exc,subprocess.TimeoutExpired):
+                update(path,message='The updater is taking longer than expected. Its progress and installer report remain available.')
+            else:
+                update(path,status='failed',message='The updater could not complete: '+str(exc)[:1000])
+                self.notify_completed()
+
+    def notify_completed(self):
+        for row in self.items():
+            if row['status']=='restarting' and time.time()-row.get('updated_at',0)>30:
+                import psutil
+                state=read_json(self.get(row['id'])/'review.json')
+                if not state.get('installer_pid') or not psutil.pid_exists(state['installer_pid']):
+                    update(self.get(row['id']),status='recovery_needed',message='The updater exited during restart. Installation was not confirmed; see its report.')
+                continue
+            if row['status'] not in {'installed','rolled_back','failed','recovery_needed'}:continue
+            path=self.get(row['id'])
+            with LOCK:
+                review=read_json(path/'review.json')
+                if review.get('completion_announced') or not review.get('auto_install'):continue
+                update(path,completion_announced=True)
+            self.report(path,('Improvement installed: '+row['summary']+'. Undo is available. '+review.get('deployment_message','') if row['status']=='installed' else
+                              'Improvement '+row['status'].replace('_',' ')+': '+row.get('message','Check its report.')))
 
     def recover_interrupted(self):
         for row in self.items():
             if row['status'] in {'planning','drafting','checking'}:
                 update(self.get(row['id']),status='failed',message='Andrew restarted while drafting. Request this improvement again; no code was installed.')
+            elif row['status'] in {'testing','repairing','installing','rolling_back'}:
+                import psutil
+                review=read_json(self.get(row['id'])/'review.json')
+                if not review.get('installer_pid') or not psutil.pid_exists(review['installer_pid']):
+                    update(self.get(row['id']),status='failed',message='The updater was interrupted. See the test and installer reports before retrying.')
 
 
 def request_improvement(app, request, source='pc', provider=None, model=None):
-    return manager(app).request(request,source,provider,model)
+    preview=bool(re.search(r'\b(?:draft only|preview only|review first|do not install|don[\x27\u2019]t install)\b',request,re.I))
+    return manager(app).request(request,source,provider,model,auto_install=not preview)
 
 
 def route(app, text, source='pc'):
@@ -475,7 +587,7 @@ def route(app, text, source='pc'):
     followup = low in ('install it','apply it','install that','apply that','save and install it','test and install')
     if install_intent(text) or followup:
         if getattr(app.request,'action_internal',False) is True:
-            return 'Installing code requires your own install command or the Test and install button.'
+            return 'Ask for a self improvement directly; it will be tested and installed automatically. Existing previews can use Test and install.'
         reference = app.controls.improvement_reference(source) if followup else None
         if followup and not reference:
             return 'To install Andrew code, say install the latest improvement, or open Improvements and choose Test and install.'
@@ -483,14 +595,15 @@ def route(app, text, source='pc'):
         except ValueError as exc:
             app.request.control_failed=True
             return str(exc)
-    if re.match(r'^(?:improve yourself|self[ -]improve)\b',low):
-        request = re.sub(r'^(?:improve yourself|self[ -]improve)\b\s*[:,]?\s*','',text,flags=re.I)
+    intent=r'^(?:improve yourself|self[ -]improve|(?:improve|fix|update|edit) your (?:code|app|software))\b'
+    if re.match(intent,low):
+        request = re.sub(intent+r'\s*[:,]?\s*','',text,flags=re.I)
         override = re.match(r'^(?:using|with) (claude|grok|openai|open ai|chatgpt|local)(?: (?:model )?([\w.:-]+?))?(?:\s*:\s*|\s+to\s+)(.+)$',request,re.I)
         if override:
             return request_improvement(app,override[3],source,override[1].lower(),override[2])
         request=re.sub(r'^to\s+','',request,flags=re.I)
         if len(request.strip())<4:
-            return 'What should I change? For example: Hey '+app.get('name')+', improve yourself to add a timer shortcut.'
+            request='Use the code map to select and implement one small useful bug fix or usability improvement. Substantiate the problem from the supplied code, add a meaningful regression test when needed, and preserve existing features and user preferences.'
         return request_improvement(app,request,source)
     if low in ('improvement status','self improvement status','what is the improvement status'):
         rows = manager(app).items()

@@ -245,6 +245,7 @@ PC_VOICE = PCVoice(APP, handle_audio, CapturePlayback(),speech_control)
 
 def scheduler():
     while True:
+        IMPROVEMENTS.notify_completed()
         for message in APP.due():
             if message['source'] == 'pi' and time.time()-APP.relay_seen < 20:
                 try:
@@ -324,7 +325,8 @@ class Handler(BaseHTTPRequestHandler):
                 path=IMPROVEMENTS.get(self.path.rsplit('/',1)[-1])
                 patch=(path/'changes.patch').read_text(encoding='utf-8') if (path/'changes.patch').exists() else ''
                 report=(path/'tests.log').read_text(encoding='utf-8',errors='replace')[-30000:] if (path/'tests.log').exists() else ''
-                return self.send(200,{'review':improvements.read_json(path/'review.json'),'patch':patch,'tests':report})
+                installer=(path/'installer.log').read_text(encoding='utf-8',errors='replace')[-12000:] if (path/'installer.log').exists() else ''
+                return self.send(200,{'review':improvements.read_json(path/'review.json'),'patch':patch,'tests':report,'installer':installer})
             except ValueError as exc: return self.send(400,{'error':str(exc)})
         if self.path == '/api/relay':
             result = APP.job()
@@ -457,7 +459,9 @@ class Handler(BaseHTTPRequestHandler):
                 answer=APP.ai('Say exactly: Andrew connection works.',provider,model)
                 return self.send(200,{'answer':answer,'provider':provider,'model':model})
             if self.path == '/api/improvements' and self.trusted_local():
-                return self.send(200,{'answer':IMPROVEMENTS.request(data.get('request',''),'pc',data.get('provider'),data.get('model'))})
+                mode=data.get('auto_install',True)
+                if not isinstance(mode,bool):raise ValueError('Choose automatic install or preview only.')
+                return self.send(200,{'answer':IMPROVEMENTS.request(data.get('request',''),'browser' if data.get('source')=='browser' else 'pc',data.get('provider'),data.get('model'),auto_install=mode)})
             if self.path in ('/api/improvement-install','/api/improvement-rollback') and self.trusted_local():
                 return self.send(200,{'answer':IMPROVEMENTS.launch('install' if self.path.endswith('install') else 'rollback',data.get('id'))})
             if self.path == '/api/connect-grok' and self.trusted_local():

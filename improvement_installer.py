@@ -1,7 +1,7 @@
-"""Trusted updater, outside the model-editable source list.
+"""Checked updater, frozen per operation so it can also improve/restore itself.
 
-Runs only after the user explicitly chooses Test and install (which executes
-candidate Python). A source copy is not an operating-system security sandbox.
+Runs for an authorized improvement request or explicit install. The test copy
+keeps private runtime files out; it is not an OS security sandbox.
 """
 import json
 import os
@@ -48,6 +48,7 @@ def run_tests(root, path, review):
         target.parent.mkdir(parents=True,exist_ok=True)
         shutil.copyfile(source,target)
     for name in review['candidate_hashes']:
+        if name.startswith('tests/') and name in review['snapshot_hashes']:continue
         target = safe_path(work,name)
         target.parent.mkdir(parents=True,exist_ok=True)
         shutil.copyfile(safe_path(path/'candidate',name),target)
@@ -56,10 +57,16 @@ def run_tests(root, path, review):
     for key in list(env):
         if key.endswith(('_API_KEY','_AUTH_TOKEN','_OAUTH_TOKEN')): env.pop(key,None)
     env['PYTHONDONTWRITEBYTECODE'] = '1'
-    # Fixed test command; the model cannot supply a shell command or weaken existing tests.
+    # First run the original regression bodies against the candidate app. New
+    # tests participate too. Changed existing tests cannot erase a failing check.
+    command=[str(root/'.venv/Scripts/python.exe'),'-B','-m','unittest','discover','-s','tests','-v']
     with (path/'tests.log').open('w',encoding='utf-8') as log:
-        proc = subprocess.run([str(root/'.venv/Scripts/python.exe'),'-B','-m','unittest','discover','-s','tests','-v'],
-            cwd=work,env=env,stdout=log,stderr=subprocess.STDOUT,timeout=240,creationflags=HIDDEN)
+        proc=subprocess.run(command,cwd=work,env=env,stdout=log,stderr=subprocess.STDOUT,timeout=240,creationflags=HIDDEN)
+        changed_tests=[n for n in review['candidate_hashes'] if n.startswith('tests/') and n in review['snapshot_hashes']]
+        if not proc.returncode and changed_tests:
+            for name in changed_tests:shutil.copyfile(safe_path(path/'candidate',name),safe_path(work,name))
+            log.write('\nChecking the updated test suite as well.\n');log.flush()
+            proc=subprocess.run(command,cwd=work,env=env,stdout=log,stderr=subprocess.STDOUT,timeout=240,creationflags=HIDDEN)
     if proc.returncode: raise ValueError('Regression tests failed. No live files changed. Review the test report before requesting a new draft.')
     return 'Regression tests passed in a separate source copy.'
 
@@ -163,7 +170,7 @@ def execute(action,path,pid,root=ROOT):
             verify_base(root,review)
             verify_candidate(path,review)
             prepare_backup(root,path,review)
-            update(path,status='installing',validation=validation,message='Tests passed. Installing the reviewed change.')
+            update(path,status='installing',validation=validation,message='Tests passed. Installing the small change.')
         elif action=='rollback':
             verify_installed(root,review)
         else:
@@ -180,7 +187,19 @@ def execute(action,path,pid,root=ROOT):
         update(path,status='restarting',live_files_changed=action=='install',message='Reconnecting and checking startup.')
         process = start_server(root)
         if not healthy(process): raise ValueError('Andrew did not start successfully with the changed code.')
-        update(path,status='installed' if action=='install' else 'rolled_back',
+        update(path,message='Host startup checked. Finishing device and website updates.')
+        if action=='install':
+            try:
+                request=urllib.request.Request('http://127.0.0.1:8765/api/pi-update',data=b'{}',
+                    headers={'Content-Type':'application/json','X-Andrew-Local':'1','Origin':'http://127.0.0.1:8765'},method='POST')
+                with urllib.request.urlopen(request,timeout=3) as response:json.load(response)
+            except Exception:pass
+        try:
+            from web_sync import sync
+            deployment=sync(root,list(review['candidate_hashes']))
+        except Exception as exc:
+            deployment='Host update completed. Website deployment needs attention: '+str(exc)[:600]
+        update(path,status='installed' if action=='install' else 'rolled_back',deployment_message=deployment,
             live_files_changed=action=='install',message='Installed and startup checked. Undo is available.' if action=='install' else 'Previous code restored and startup checked.')
     except Exception as exc:
         detail = str(exc)[:1200] if isinstance(exc,ValueError) else 'The update process could not complete.'

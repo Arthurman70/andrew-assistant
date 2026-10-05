@@ -1,6 +1,6 @@
 # Andrew
 
-An open-source assistant with a Windows host, Raspberry Pi voice/screen satellite, and authenticated browser/mobile client. Use local commands for everyday tasks and signed-in Grok, Claude, or OpenAI accounts for conversation and reviewed improvements.
+An open-source assistant with a Windows host, Raspberry Pi voice/screen satellite, and authenticated browser/mobile client. Use local commands for everyday tasks and signed-in Grok, Claude, or OpenAI accounts for conversation and automatic, tested improvements.
 
 This is an early release, with timers, alarms, reminders, lists, named memories, optional speaker matching, games, model switching, camera requests, and bounded Windows browser tasks. Home Assistant can connect lights and thermostats. Device availability and account limits apply; full Alexa parity is not promised.
 
@@ -14,7 +14,7 @@ Choose a microphone and speaker in Settings. Say **“Hey Andrew, what time is i
 
 Rename with **“Hey Andrew, I’ll call you Charlie”**, **“call yourself Alex”**, or **“change your name to Alex”**. The reply confirms the new **Hey + name** wake phrase; the name survives restarts. You can also use **Settings → Assistant name → Rename**. “My name is …” identifies the speaker and does not rename the assistant.
 
-Adaptive listening is slightly more tolerant in a quiet room. TV/media and quiet mode retain stronger foreground checks. Self-improvement can adjust `wake_tuning.json` within validated bounds; microphone capture and the requirement for a complete wake phrase remain protected.
+Adaptive listening is slightly more tolerant in a quiet room. TV/media and quiet mode retain stronger foreground checks. Self-improvement can adjust `wake_tuning.json` within validated bounds; capture code can also be improved while preserving wake-only transcription and the complete wake phrase.
 
 ## Interruption
 
@@ -69,7 +69,11 @@ Alarms can repeat every day, weekdays, weekends, or selected days. Choose the re
 
 Dismiss/stop silences a ringing occurrence and retains the next scheduled alarm. Snooze retains its regular clock time. Cancel removes the entire recurring schedule. These local commands need no AI account. The host must be running; after downtime, Andrew announces one overdue occurrence and schedules the next future day instead of replaying every missed alarm.
 
-Self-improvement automatically supplies the timer command handler, SQLite schema, scheduler and calendar implementation together for alarm/timer requests. If a model names a missing editable source file, Andrew supplies it and retries once. Protected capture, authentication, runtime settings and credentials are excluded; candidate changes still require review and isolated regression tests before installation.
+Say “Hey Andrew, improve yourself to …” and Andrew automatically drafts, tests and installs a small patch with the selected model. All application source areas are available, including speech, wake capture, providers, server, UI and the updater. A cached function/dependency map guides selection; large files supply focused function snippets instead of the whole application. Naming a file/function, such as `app.html::renderImprovements`, skips the separate planning call. “Improve yourself” alone asks for one useful small fix.
+
+Each patch is limited to four files, twelve replacements, 300 changed lines and 24,000 changed bytes. Failed regression tests trigger one repair attempt using the original source and failure report. Original regression test bodies run against the candidate before any edited tests. The updater freezes its working code, keeps backups, checks startup and restores the old version if startup fails. Ask “undo last improvement” to roll back. Pi updates queue automatically; paired website source updates deploy through the owner's configured admin SSH connection, preserving private login configuration.
+
+Say “draft only” or uncheck **Test and install automatically** for a preview; **Details / test report** shows the patch and actual progress/failures. Private settings, credentials, recordings, model weights and runtime directories never enter the code map or source context. This workflow runs authorized candidate code in a separate test copy; it is not an OS sandbox. No model can guarantee a correct patch, and a failed second test run leaves live code unchanged. New dependencies are not installed by generated proposals.
 
 Say **Hey + the current assistant name** before PC/Pi requests:
 

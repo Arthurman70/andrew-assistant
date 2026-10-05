@@ -162,7 +162,7 @@ class Controls:
         try:
             for index, part in enumerate(parts):
                 if index and install_intent(part) and any(re.match(r'^(?:improve yourself|self[ -]improve)\b', p, re.I) for p in parts[:index]):
-                    answers.append('The new improvement is still being prepared. I will tell you when it is ready to review and install.')
+                    answers.append('The improvement is underway and will be tested and installed automatically. I will report the result.')
                     break
                 self.app.request.control_failed=False
                 try: answer=self.app.command(part,source)

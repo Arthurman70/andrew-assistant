@@ -338,6 +338,8 @@ class Andrew:
         text = re.sub(r'^(?:please\s+)?(?:(?:can|could|would|will) you\s+)?(?:please\s+)?', '', text, flags=re.I)
         text = re.sub(r',?\s+please$', '', text, flags=re.I)
         low = text.lower()
+        if not getattr(self.request,'action_internal',False):
+            self.request.improvement_authorized=bool(re.match(r'^(?:improve yourself|self[ -]improve|(?:improve|fix|update|edit) your (?:code|app|software))\b',low))
         # Resolve assistant naming locally before profiles, games or AI routing.
         naming=text.replace('’',"'")
         match=re.fullmatch(r'(?:from now on[, ]+)?(?:your (?:new )?name is(?: now)?|'

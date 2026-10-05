@@ -20,8 +20,8 @@ class ImprovementTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_protected_files_and_traversal_rejected(self):
-        for name in ('../core.py', 'server.py', 'improvements.py', 'improvement_installer.py', 'pc_audio.py',
-                     'wake_capture.py', 'data/relay-token.txt', 'C:/evil.html', 'tests/test_core.py'):
+        for name in ('../core.py','data/relay-token.txt','runtime/wake/config.json',
+                     'C:/evil.html','assets/../../data/relay-token.txt','assets/private/key.py'):
             with self.assertRaises(ValueError):
                 stage_response(ROOT, self.destination, json.dumps({'files': {name: '<html></html>'}}))
 
@@ -52,7 +52,7 @@ class ImprovementTests(unittest.TestCase):
             'edits':[],'files':{'wake_tuning.json':json.dumps(dict(DEFAULTS,quiet_min_rms=35))}})]
         mgr=ImprovementManager(app,root)
         with patch('providers.resolve',return_value=('grok','grok-selected',{'label':'Grok'})):
-            mgr.request('Make voice detection a little easier','pc','grok','grok-selected')
+            mgr.request('Make voice detection a little easier','pc','grok','grok-selected',auto_install=False)
         mgr.thread.join(5);self.assertFalse(mgr.thread.is_alive())
         prompt=app.ai.call_args_list[1].args[0]
         self.assertIn('"wake_tuning.json":',prompt)
@@ -79,7 +79,7 @@ class ImprovementTests(unittest.TestCase):
                     'edits':[{'path':'feature_timers.py','old':'VALUE = 1','new':'VALUE = 2'}],'files':{}})]
                 mgr=ImprovementManager(app,root)
                 with patch('providers.resolve',return_value=(provider,'selected',{'label':provider})):
-                    mgr.request('Set alarms for a whole week recurring','pc',provider,'selected')
+                    mgr.request('Set alarms for a whole week recurring','pc',provider,'selected',auto_install=False)
                 mgr.thread.join(5);self.assertFalse(mgr.thread.is_alive())
                 prompt=app.ai.call_args_list[1].args[0]
                 for name in ('core.py','feature_timers.py','feature_alarm_recurrence.py'):self.assertIn('"'+name+'":',prompt)
@@ -96,7 +96,7 @@ class ImprovementTests(unittest.TestCase):
             json.dumps({'summary':'saved preferences','edits':[{'path':'feature_preferences.py','old':'VALUE = 1','new':'VALUE = 2'}],'files':{}})]
         mgr=ImprovementManager(app,root)
         with patch('providers.resolve',return_value=('openai','gpt-6-luna',{'label':'OpenAI'})):
-            mgr.request('Save my preferences')
+            mgr.request('Save my preferences',auto_install=False)
         mgr.thread.join(5);self.assertFalse(mgr.thread.is_alive())
         self.assertEqual(mgr.items()[0]['status'],'needs_review');self.assertEqual(app.ai.call_count,3)
         self.assertIn('"feature_preferences.py":',app.ai.call_args_list[2].args[0])
@@ -190,7 +190,7 @@ class ImprovementTests(unittest.TestCase):
                     {'path':'core.py','old':'VALUE = 1','new':'VALUE = 2'}]})]
                 mgr=ImprovementManager(app,root)
                 with patch('providers.resolve',return_value=(provider,model,{'label':provider})):
-                    mgr.request('Change the value','pi',provider,model)
+                    mgr.request('Change the value','pi',provider,model,auto_install=False)
                 mgr.thread.join(5)
                 self.assertFalse(mgr.thread.is_alive())
                 self.assertEqual(mgr.items()[0]['status'],'needs_review')
@@ -218,7 +218,7 @@ class ImprovementTests(unittest.TestCase):
         app=Mock();app.directory=root/'data';app.ai.side_effect=responses
         mgr=ImprovementManager(app,root)
         with patch('providers.resolve',return_value=('grok','grok-selected',{'label':'Grok'})):
-            mgr.request('Change the value','pc','grok','grok-selected')
+            mgr.request('Change the value','pc','grok','grok-selected',auto_install=False)
         mgr.thread.join(5);self.assertFalse(mgr.thread.is_alive())
         return root,app,mgr,mgr.items()[0]
 
@@ -251,7 +251,7 @@ class ImprovementTests(unittest.TestCase):
         self.assertIn('already available',row['message']);self.assertFalse((mgr.get(row['id'])/'candidate').exists())
 
     def test_wrapped_json_still_cannot_modify_protected_files(self):
-        value=json.dumps({'files':{'server.py':'print("not allowed")'}})
+        value=json.dumps({'files':{'data/config.py':'print("not allowed")'}})
         with self.assertRaisesRegex(ValueError,'protected'):
             stage_response(ROOT,self.destination,'Here is the proposal:\n```json\n'+value+'\n```')
 
