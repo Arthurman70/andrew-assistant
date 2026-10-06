@@ -18,12 +18,12 @@ from urllib.parse import quote_plus, urlsplit
 CHROME = Path(os.environ.get('PROGRAMFILES', r'C:\Program Files')) / 'Google/Chrome/Application/chrome.exe'
 APPS = {'chrome': str(CHROME), 'calculator': 'calc.exe', 'notepad': 'notepad.exe',
         'spotify': 'spotify:', 'grok': 'https://grok.com', 'claude': 'https://claude.ai',
-        'chatgpt': 'https://chatgpt.com'}
+        'chatgpt': 'https://chatgpt.com','bambu':'bambu-studio.exe'}
 LOCAL = Path(os.environ.get('LOCALAPPDATA', str(Path.home() / 'AppData/Local')))
 DESKTOP_APPS = {'claude': LOCAL / 'AnthropicClaude/claude.exe',
                 'chatgpt': LOCAL / 'Microsoft/WindowsApps/ChatGPT.exe'}
 AI_PROCESSES = {'claude.exe', 'chatgpt.exe'}
-PROCESSES = {'chrome.exe', 'notepad.exe', 'calculatorapp.exe', 'calculator.exe', 'spotify.exe'} | AI_PROCESSES
+PROCESSES = {'chrome.exe', 'notepad.exe', 'calculatorapp.exe', 'calculator.exe', 'spotify.exe','bambu-studio.exe'} | AI_PROCESSES
 PACKAGED_APPS=None
 
 def packaged_apps():
@@ -64,11 +64,26 @@ def click_allowed(kind, name, requested=''):
         if not requested or not any(re.search(r'\b'+re.escape(v)+r'\b',requested,re.I) for v in ('download','upload','save','edit','create','build')):return False
     return kind in ('Hyperlink','TabItem','ListItem','MenuItem','Button','RadioButton')
 
+def bambu_click_allowed(kind,name,request):
+    request=re.sub(r'^In the existing Bambu Studio app,\s*','',request,flags=re.I)
+    clean=name.strip().lower()
+    if re.search(r'password|access code|log.?in|sign.?in|permission|developer mode|lan.?only|firmware|^update$',clean):return False
+    for pattern,intent in [(r'\b(?:print plate|print all|start print|send print|send to printer)\b',r'(?:^|\b(?:and|then) )(?:(?:please|can you) )?(?:print\b|start (?:the |a )?print|send .+ to .+printer)'),
+                           (r'\b(?:pause|resume|stop|cancel)\b',r'(?:^|\b(?:and|then) )(?:(?:please|can you) )?(?:pause|resume|stop|cancel)\b'),
+                           (r'\b(?:calibrat\w*|home all|unload|load filament|extrud\w*|retract\w*)\b',r'(?:^|\b(?:and|then) )(?:(?:please|can you) )?(?:calibrat\w*|home|unload|load filament|extrud\w*|retract\w*)\b'),
+                           (r'\b(?:camera|liveview|live view)\b',r'(?:^|\b(?:and|then) )(?:(?:please|can you) )?(?:show|open|view|use|turn on)\b.{0,60}\b(?:camera|liveview|live view)\b')]:
+        if re.search(pattern,clean) and not re.search(intent,request,re.I):return False
+    if re.search(r'camera|liveview|live view',clean) and re.search(r'\b(?:camera|liveview|live view)\b',request,re.I):return kind in ('Button','TabItem','MenuItem')
+    if kind=='Pane':return clean in {'prepare','preview','device','project','status','storage','assistant(hms)','printer parts','print options','slice plate','slice all','slice','calibration','load','load filament','unload','pause','resume','stop','cancel','print plate','print all','scale','rotate','arrange','auto arrange','auto orient','cut','mirror','support','paint'}
+    if kind=='ComboBox':return True
+    return click_allowed(kind,name,request)
+
 
 class PCController:
     def __init__(self, request=''):
         self.request=request
         self.editor_focused=False
+        self.bambu_device_view=False
         import comtypes
         comtypes.CoInitialize()
         from pywinauto import Desktop
@@ -100,19 +115,41 @@ class PCController:
                 if process not in {'lockapp.exe','credentialuibroker.exe','consent.exe','securityhealthhost.exe'}:
                     out.append({'window':window.handle,'title':window.window_text()[:200],'app':process})
             except Exception: continue
+        if not any(w['app']=='bambu-studio.exe' for w in out):
+            out.extend(self.bambu_native_windows())
         return out
+
+    def bambu_native_windows(self):
+        # wxWidgets sometimes marks its top-level pane off-screen in UIA even
+        # while its real HWND is visible. Observe the actual Bambu frame instead.
+        if os.name!='nt':return []
+        found=[];user32=ctypes.windll.user32
+        callback_type=ctypes.WINFUNCTYPE(ctypes.c_bool,ctypes.c_void_p,ctypes.c_void_p)
+        def observe(handle,_):
+            try:
+                if not user32.IsWindowVisible(ctypes.c_void_p(handle)):return True
+                size=user32.GetWindowTextLengthW(ctypes.c_void_p(handle));title=ctypes.create_unicode_buffer(size+1)
+                user32.GetWindowTextW(ctypes.c_void_p(handle),title,size+1)
+                if not re.search(r'\bBambuStudio\s*$',title.value,re.I):return True
+                window=self.desktop.window(handle=handle).wrapper_object()
+                if self.process(window)=='bambu-studio.exe':found.append({'window':int(handle),'title':title.value[:200],'app':'bambu-studio.exe'})
+            except Exception:pass
+            return True
+        callback=callback_type(observe);user32.EnumWindows(callback,0)
+        return found
 
     def select(self, handle):
         matches=[w for w in self.windows() if w['window']==handle]
         if len(matches)!=1: raise ValueError('That supported app window is no longer available.')
         self.window=self.desktop.window(handle=handle).wrapper_object();self.editor_focused=False
+        if self.process(self.window)=='bambu-studio.exe' and ctypes.windll.user32.IsIconic(ctypes.c_void_p(handle)):ctypes.windll.user32.ShowWindow(ctypes.c_void_p(handle),9)
         return self.snapshot()
 
     def snapshot(self):
         self.refs={};self.stamp=secrets.token_hex(6)
         if self.window is None: return {'windows':self.windows()}
         if self.process(self.window) in {'lockapp.exe','credentialuibroker.exe','consent.exe','securityhealthhost.exe'}:raise ValueError('This permission or security screen needs your attention.')
-        root=self.window;ai=self.ai_window()
+        root=self.window;ai=self.ai_window();is_bambu=self.process(root)=='bambu-studio.exe'
         queue=[(root,0)]; nodes=[]; started=time.monotonic(); visited=0
         while queue and len(nodes)<240 and visited<1200 and time.monotonic()-started<6:
             control,depth=queue.pop(0);visited+=1
@@ -120,9 +157,9 @@ class PCController:
                 info=control.element_info
                 if info._element.CurrentIsPassword or not control.is_visible(): continue
                 name=control.window_text().strip();kind=info.control_type
-                if (name or kind in ('Edit','Document')) and kind not in ('Pane','Group'):
+                if (name or kind in ('Edit','Document')) and (kind not in ('Pane','Group') or (is_bambu and kind=='Pane' and name not in ('panel','control'))):
                     ref=f'{self.stamp}:{len(nodes)}'
-                    allowed=click_allowed(kind,name,self.request) and control.is_enabled()
+                    allowed=(bambu_click_allowed(kind,name,self.request) if is_bambu else click_allowed(kind,name,self.request)) and control.is_enabled()
                     if ai and name.lower() in ('send','send message','send prompt','continue','continue generating','retry','try again'):allowed=control.is_enabled()
                     self.refs[ref]=(control,name,kind,allowed)
                     nodes.append({'ref':ref,'role':kind,'name':name[:1800] if ai and kind in ('Text','Document') else name[:280],
@@ -131,6 +168,9 @@ class PCController:
                                   'readable':kind in ('Text','Document','Edit'), 'text_length':len(name),'text_truncated':len(name)>(1800 if ai and kind in ('Text','Document') else 280)})
                 if depth<22: queue.extend((child,depth+1) for child in control.children())
             except Exception: continue
+        self.bambu_device_view=is_bambu and any(n['name']=='Printing Progress' for n in nodes)
+        if self.bambu_device_view and not re.search(r'\b(?:heat|temperature|extrude|retract|load filament|unload)\b',self.request,re.I):
+            for n in nodes:n['typable']=False
         return {'window':root.handle,'title':root.window_text()[:200],'elements':nodes,
                 'truncated':bool(queue),'ai_busy':ai and any(re.search(r'^(?:stop generating|stop response|stop streaming|cancel generation)$',n['name'],re.I) for n in nodes),
                 'continue_available':ai and any(re.search(r'^continue (?:generating|response|writing)$',n['name'],re.I) for n in nodes),
@@ -183,6 +223,14 @@ class PCController:
         app=normalize(app)
         if app not in APPS:
             return self.open_installed(app)
+        if app=='bambu':
+            existing=[w for w in self.windows() if w['app']=='bambu-studio.exe']
+            main=[w for w in existing if re.search(r'\bBambuStudio\s*$',w['title'],re.I)]
+            if len(main)==1:existing=main
+            if len(existing)==1:
+                observed=self.select(existing[0]['window']);self.window.set_focus()
+                return {'opened':True,'app':'bambu','observation':observed,'note':'Reused the existing Bambu Studio window.'}
+            if existing:raise ValueError('Several Studio windows are already open. Select the intended one before continuing; no duplicate was launched.')
         if query:
             if not isinstance(query,str) or not 1<=len(query)<=500: raise ValueError('Search is too long.')
             url='https://www.google.com/search?q='+quote_plus(query)
@@ -190,6 +238,11 @@ class PCController:
             if app!='chrome': raise ValueError('Web addresses open in Chrome.')
             address=safe_url(url) if url else 'https://www.google.com'
             subprocess.Popen([str(CHROME),'--force-renderer-accessibility',address],close_fds=True)
+        elif app=='bambu':
+            from bambu import studio_executable
+            executable=studio_executable()
+            if not executable:raise ValueError('Bambu Studio is not installed on this PC.')
+            subprocess.Popen([str(executable)],close_fds=True)
         elif app in ('claude','chatgpt') and app in packaged_apps() and 'codex' not in packaged_apps()[app].lower():
             os.startfile('shell:AppsFolder\\'+packaged_apps()[app])
         elif app in DESKTOP_APPS and Path(DESKTOP_APPS[app]).exists() and 'codex' not in packaged_apps().get(app,'').lower():
@@ -228,6 +281,7 @@ class PCController:
             raise ValueError('Type 1 to 32000 ordinary characters.')
         if SECRET.search(text): raise ValueError('Andrew does not type passwords or keys; enter those yourself.')
         if self.window is None:raise ValueError('Select and inspect the target app first.')
+        if getattr(self,'bambu_device_view',False) and not re.search(r'\b(?:heat|temperature|extrude|retract|load filament|unload)\b',self.request,re.I):raise ValueError('This status request does not authorize changing printer controls. Use project preparation controls for slicing settings.')
         if self.process(self.window) in {'powershell.exe','pwsh.exe','cmd.exe','windowsterminal.exe','credentialuibroker.exe','consent.exe'}:raise ValueError('Use a document or app editor; credentials and terminal command entry need your attention.')
         entry=self.refs.get(ref)
         if entry is None: raise ValueError('Stale control. Inspect the window again first.')

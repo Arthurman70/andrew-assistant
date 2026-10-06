@@ -81,6 +81,8 @@ class Andrew:
         self.controls=Controls(self)
         from feature_timers import Schedule
         self.schedule=Schedule(self)
+        from bambu import Bambu
+        self.bambu=Bambu(self)
         self.notify=None
 
     def get(self, key):
@@ -113,7 +115,7 @@ class Andrew:
             'timers': timers, 'events': events, 'relay_online': time.time() - self.relay_seen < 20,
             'home_connected': bool(self.get('ha_token')), 'ha_url': self.get('ha_url'),
             'camera_monitoring': False,'memory':self.memory.snapshot(),'daily':self.daily.snapshot(),
-            'navigation':self.controls.snapshot(),'games':{s:self.games.snapshot(s) for s in ('pc','pi')},'communications':self.communications.status()}
+            'navigation':self.controls.snapshot(),'games':{s:self.games.snapshot(s) for s in ('pc','pi')},'communications':self.communications.status(),'bambu':self.bambu.status()}
 
     def due(self, now=None):
         now = time.time() if now is None else now
@@ -390,6 +392,8 @@ class Andrew:
             return 'You\x27re welcome.'
         if low in ('continue the pc task','resume the pc task','continue task','resume task','continue your work','keep working') and self.pc_agent:
             return self.pc_agent.start(text,source)
+        bambu_answer=self.bambu.route(text,source)
+        if bambu_answer is not None:return bambu_answer
         from app_commands import route as app_route
         app_answer=app_route(self,text,source)
         if app_answer is not None:return app_answer

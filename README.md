@@ -60,6 +60,18 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) to host your own instance. Never expose the u
 
 ## Useful commands
 
+### Bambu Studio
+
+Andrew discovers an installed Bambu Studio, uses its existing account/session, and reads only recent project paths and selected printer/process/filament profiles from its local configuration. **Connections → Bambu Studio** lists recent projects, details, printer status and slicing controls. “Bamboo” speech spellings also work.
+
+- “Open Bambu Studio” / “Bambu projects” / “Bambu profiles.”
+- “Open Bambu project 2” / “inspect the latest Bambu project.” Names and explicit 3MF/STL/OBJ/STEP paths also work; ambiguous names give project numbers.
+- “Slice the latest Bambu project on plate 1” / “Bambu slicing status” / “open sliced Bambu project” / “cancel Bambu slicing.” Plate zero slices all plates.
+- “Printer status” reads the observed Studio Device tab directly. If that page cannot be read, the normal PC task planner can inspect Studio. “Pause my printer”, “resume my printer”, and named printer/AMS requests use observed desktop tasks; availability depends on Studio's controls and connected device.
+- “Use Bambu Studio to …” supports longer preparation/editing tasks. Every planning model has a typed `bambu` tool for projects, details, local slicing and observed status before using desktop clicks.
+
+3MF slicing uses the project's embedded settings and saves a new output under private `data/bambu/jobs`. The screen can override layer height, infill, walls, supports and plate number. The source is preserved; readiness requires a successful slicer exit and actual nonempty G-code in the output. Projects with post-processing scripts need manual review. STL/STEP preparation uses Studio's normal desktop workflow with selected profiles. Slicing **does not start a print**. Saved profile names are not live printer status. Starting prints, heating, moving, calibration and camera access need an explicit request and an observed target; firmware/account/LAN setup stays in Studio. No cloud API impersonation or account-token copying is used. The PC and Studio must be available for printer controls.
+
 Timers and alarms have separate screen lists and durable numbers. Unnamed items become Timer 1, Timer 2, Alarm 1, etc.; names stay available as shortcuts. Edit an item directly under **Edit time or name**, or use voice:
 
 - “Change tea timer to ten minutes” / “change timer number 2 to five minutes.”

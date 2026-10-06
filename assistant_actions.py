@@ -3,6 +3,7 @@ import json
 import re
 
 COMMANDS={
+ 'bambu.command':{'command':'requested Bambu Studio command: open Bambu Studio / Bambu projects / Bambu profiles / inspect latest project / slice latest project / printer status / pause my printer'},
  'timer.set':{'name':'short timer name','seconds':'number, 1..604800'},
  'timer.edit':{'name':'existing timer name','seconds':'number, 1..604800'},
  'timer.cancel':{'name':'existing timer name'},
@@ -71,6 +72,7 @@ def system_prompt(app,provider,source):
       '"commands":[{"name":"catalog command","args":{}}]}. Use commands=[] for ordinary conversation. '
       'Before declaring a task impossible, evaluate the actual command catalog and desktop tools. Use pc.task for computer/app/build work, including using Claude or ChatGPT apps. '
       'Try the most likely route, preserve progress, and continue unfinished work rather than asking the user to repeat it. Report an actual observed blocker honestly. '
+      'Use bambu.command for Bambu Studio projects, profiles, slicing and printer requests. Bambu project profiles are saved settings, never live printer status. Slicing creates a new file and never starts printing. Printer controls use the existing signed-in Studio app; never extract its account credentials. '
       'Maximum four commands. Use the latest user request and recent conversation to resolve follow-ups. '
       'Model changes use model.select; showing an Andrew page uses app.show, not a PC browser task. '
       'For an explicit user request to improve yourself or your code, use improvement.request with the selected model. '
@@ -140,6 +142,7 @@ class Actions:
         return ' '.join(results) if commands else reply.strip() or 'What would you like to do?'
     def execute(self,name,a,source):
         app=self.app
+        if name=='bambu.command':return app.bambu.route(a['command'],source) or 'Use Bambu projects, Bambu profiles, inspect latest project, slice latest project, or printer status.'
         if name=='timer.set':return app.timer(a['name'],a['seconds'])
         if name in ('timer.cancel','timer.edit'):
             return app.schedule.modify(a['name'],'timer','cancel' if name=='timer.cancel' else 'reset',source,

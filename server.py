@@ -173,6 +173,7 @@ IMPROVEMENTS=improvements.manager(APP)
 IMPROVEMENTS.notify=pc_task_finished
 APP.camera=Camera(APP,notify=pc_task_finished)
 APP.notify=pc_task_finished
+APP.bambu.notify=pc_task_finished
 
 def resumed_audio(wav,source):
     if source=='pc':queue_speech(wav)
@@ -443,6 +444,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.path=='/api/followup/close' and self.trusted_local():
                 for source in ('pc','pi'):FOLLOWUP.close(source)
                 return self.send(200,{'answer':'Follow-up listening closed.'})
+            if self.path=='/api/bambu' and self.trusted_local():
+                return self.send(200,APP.bambu.perform(data,'browser' if data.get('source')=='browser' else 'pc'))
             if self.path == '/api/speech-control':
                 source=data.get('source','pc') if self.trusted_local() else 'pi'
                 return self.send(200,{'answer':speech_control(source,data.get('action')),'silent':True})

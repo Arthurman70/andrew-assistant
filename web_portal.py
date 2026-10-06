@@ -21,7 +21,7 @@ GET_PATHS={'/api/status','/api/providers','/api/providers?refresh=1','/api/devic
            '/api/browser-notifications','/api/photo','/api/camera-frame'}
 POST_PATHS={'/api/command','/api/browser-voice','/api/provider','/api/settings','/api/pi-update',
             '/api/pc-task-stop','/api/improvements','/api/improvement-install','/api/improvement-rollback',
-            '/api/followup/close','/api/camera','/api/test-provider','/api/connect-google-voice','/api/connect-claude','/api/connect-grok','/api/memory-delete','/api/test-speaker'}
+            '/api/bambu','/api/followup/close','/api/camera','/api/test-provider','/api/connect-google-voice','/api/connect-claude','/api/connect-grok','/api/memory-delete','/api/test-speaker'}
 
 def allowed(path,method):
     if method=='POST':return path in POST_PATHS

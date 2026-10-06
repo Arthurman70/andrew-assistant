@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 import re
 
 ROLES={
+ 'bambu.py':'Bambu Studio discovery, projects, profile metadata, local slicing jobs and printer task routing',
  'app_commands.py':'fast installed app launching and narrowly scoped speech aliases',
  'conversation_memory.py':'per-person addressed chat archive and quiet 10000-word compaction',
  'task_memory.py':'verified task recipes and person-scoped restart checkpoints',

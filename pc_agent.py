@@ -13,9 +13,10 @@ import time
 SYSTEM='''You are Andrew's PC task planner. Fulfil the user's whole request using the
 listed tools, observing the result of each action before deciding the next step.
 Output ONLY one JSON object. No Markdown and no hidden or invented tools.
-An action: {"action":"windows|inspect|read|click|key|type|open|close_tab|local|wait|browser","args":{...},"progress":"Short user-facing next step"}.
+An action: {"action":"windows|inspect|read|click|key|type|open|close_tab|local|wait|browser|bambu","args":{...},"progress":"Short user-facing next step"}.
 A final result: {"action":"finish","status":"complete|needs_input|failed","answer":"Concise spoken result"}.
 Tools:
+ bambu {"action":"status|printer_status|projects|inspect|open|slice|slice_status|cancel_slice|open_output","project":"returned project id, recent number, latest, selected or explicit model path","plate":0,"settings":{"infill":15,"layer_height":0.2,"supports":false,"walls":2}}: direct Bambu Studio integration. Prefer this for observed Device status, projects, saved settings, model imports and slicing instead of clicking. Use only arguments needed by the action. Slice uses embedded settings, validates optional overrides, preserves the source, creates a new sliced 3MF, and never sends it to the printer. Plate 0 means all. slice_status must say complete and contain an output before reporting the model ready. No arbitrary CLI flags or scripts. STL/STEP preparation uses Studio's normal desktop controls and existing profiles.
  browser {"action":"tabs|search|navigate|inspect|read|click|type|scroll|close|back|forward|reload","tab":returned ID,"query":"search text","url":"public URL","ref":"fresh browser control","offset":0,"text":"requested text"}: use only arguments needed by this action. This uses Andrew Companion in the real signed-in browser. Prefer it for web search, tabs, page reading, browser AI chats and DOM controls when connected. Read chunks using next_offset. Other sites may need an explicit per-site grant from the popup; do not bypass a denied permission. Keep Chrome Cast menu operations on native PC controls.
  windows {}: list available desktop windows and installed app names. Open an installed program using its exact listed name.
  wait {"seconds":1..5}: wait briefly, then observe the current app. Use while an AI reply/build is still running.
@@ -37,6 +38,7 @@ Exception: if the user asks you to use their Claude or ChatGPT app, open it, typ
 only the prompt the user gave, press submit, then inspect again until the reply is
 visible and summarise it. Never type passwords, keys, or private data not given.
 If a desktop app window doesn't appear, use the Chrome tab for that site instead.
+For Bambu Studio, use the installed bambu-studio.exe app and its existing signed-in session, not a website fallback. The normal workflow is Prepare (models/profiles), Preview (sliced layers/time/filament), and Device (actual connected printer, AMS, progress, temperatures and errors). Select the explicitly requested printer; if ambiguous ask one focused question. Saved project printer profiles are not proof of a live connection. For printer status inspect Device; do not access live camera unless explicitly requested. Preserve the open project. Never extract Studio credentials or change firmware, LAN/developer mode or account settings. Pause/resume/stop only when requested. Only start printing, heating, moving or calibration when that physical action was explicitly requested and its target/settings are clear; slicing alone never authorizes printing. Verify the actual Device state before claiming a print action succeeded.
 Start a new AI chat for a new task so unrelated existing conversations are not mixed into it. Resume the current task chat only when continuing saved work.
 Prefer an already-open matching Chrome tab over a new search. A cast request means
 use the user's actual Chrome Cast menu: chrome_menu, then its Cast or Save and share
@@ -92,7 +94,7 @@ def decision(raw):
         raw=re.sub(r'^```(?:json)?\s*','',raw);raw=re.sub(r'\s*```$','',raw)
     from improvements import json_response
     value=json_response(raw)
-    if not isinstance(value,dict) or value.get('action') not in ('windows','inspect','read','click','key','type','open','close_tab','local','wait','browser','finish'):
+    if not isinstance(value,dict) or value.get('action') not in ('windows','inspect','read','click','key','type','open','close_tab','local','wait','browser','bambu','finish'):
         raise ValueError('Grok did not return a supported next action.')
     if value['action']!='finish' and not isinstance(value.get('args',{}),dict): raise ValueError('Invalid action arguments.')
     return value
@@ -239,7 +241,9 @@ class PCAgent:
                 progress=str(value.get('progress','Working on your PC…'))[:180]
                 with self.lock: self.state['progress']=progress
                 try:
-                    if action=='browser':
+                    if action=='bambu':
+                        result=self.app.bambu.perform(args,source)
+                    elif action=='browser':
                         companion=getattr(self.app,'companion',None)
                         if not companion:raise ValueError('Browser companion is not installed. Use the supported PC controls.')
                         result=companion.perform(args,request=text)

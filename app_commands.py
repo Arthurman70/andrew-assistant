@@ -1,7 +1,7 @@
 """Fast app requests and speech aliases, without a planning-model round trip."""
 import re
 
-ALIASES={'clawed':'claude','claud':'claude','clod':'claude','claude':'claude','chat gpt':'chatgpt','chat g p t':'chatgpt','chatgpt':'chatgpt','chat gp t':'chatgpt','grock':'grok','grok':'grok','open ai':'openai','openai':'openai'}
+ALIASES={'clawed':'claude','claud':'claude','clod':'claude','claude':'claude','chat gpt':'chatgpt','chat g p t':'chatgpt','chatgpt':'chatgpt','chat gp t':'chatgpt','grock':'grok','grok':'grok','open ai':'openai','openai':'openai','bambu':'bambu','bamboo':'bambu','bambu studio':'bambu','bamboo studio':'bambu','bambu lab':'bambu','bambu labs':'bambu','bamboo labs':'bambu'}
 APP_PATTERN='(?:'+ '|'.join(sorted((re.escape(k) for k in ALIASES),key=len,reverse=True))+')'
 
 def normalize(name):return ALIASES.get(name.lower().strip(),name.lower().strip())
