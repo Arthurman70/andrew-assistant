@@ -5,7 +5,7 @@ if not exist ".venv\Scripts\python.exe" (
   pause
   exit /b 1
 )
-".venv\Scripts\python.exe" companion\install.py --register
+".venv\Scripts\python.exe" installers\install_companion.py --register
 if errorlevel 1 (
   echo Companion setup needs attention. Read the error above.
   pause

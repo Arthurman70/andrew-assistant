@@ -1,16 +1,33 @@
-"""Register the owner-local native host after building its transparent launcher."""
+"""Register the native host; keep Python runtime files outside Chrome's load folder."""
 import argparse
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
+import time
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from browser_companion import extension_id,HOST_NAME
 
+def clean_extension(root):
+    root=Path(root).resolve();folder=root/'companion'
+    if folder.is_symlink() or folder.resolve()!=folder:raise ValueError('Use the ordinary companion folder inside your Andrew installation.')
+    legacy=folder/'install.py'
+    if legacy.exists():
+        if legacy.is_symlink():raise ValueError('The legacy companion installer needs attention.')
+        backup=root/'data/companion-setup-backups'/str(time.time_ns());backup.mkdir(parents=True,exist_ok=True)
+        shutil.move(str(legacy),str(backup/'install.py'))
+    cache=folder/'__pycache__'
+    if cache.exists():
+        if cache.resolve()!=cache or cache.is_symlink():raise ValueError('The companion cache path needs attention.')
+        shutil.rmtree(cache)
+    if any(p.name.startswith('_') and p.name not in ('_locales','_metadata') for p in folder.iterdir()):
+        raise ValueError('Chrome cannot load a reserved filename in the companion folder. Keep runtime files outside it.')
+
 def prepare(root=ROOT):
-    root=Path(root);target=root/'runtime/browser-companion';target.mkdir(parents=True,exist_ok=True)
+    root=Path(root).resolve();clean_extension(root);target=root/'runtime/browser-companion';target.mkdir(parents=True,exist_ok=True)
     compiler=Path(os.environ.get('WINDIR','C:/Windows'))/'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
     if not compiler.exists():raise ValueError('Windows .NET C# compiler is unavailable. Native host preparation needs attention.')
     exe=target/'andrew-companion.exe'
