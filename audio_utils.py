@@ -13,3 +13,10 @@ def scale_wav(content,percent):
     with wave.open(target,'wb') as output:
         output.setparams(params);output.writeframes(samples.tobytes())
     return target.getvalue()
+
+
+def playback_timeout(content):
+    """Permit the complete clip instead of cutting long readings at two minutes."""
+    with wave.open(io.BytesIO(content),'rb') as source:
+        duration=source.getnframes()/source.getframerate()
+    return max(120,duration+30)

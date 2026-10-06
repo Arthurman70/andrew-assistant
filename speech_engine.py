@@ -7,6 +7,7 @@ import wave
 import re
 from collections import OrderedDict
 import numpy as np
+from reading import MAX_TEXT,speech_chunks,combine_wavs
 
 ROOT = Path(__file__).resolve().parent
 
@@ -79,7 +80,8 @@ class SpeechEngine:
 
     def synthesize(self, text):
         with self.tts_lock:
-            text=spoken_text(str(text))[:2400]
+            text=spoken_text(str(text))
+            if len(text)>MAX_TEXT:raise ValueError('Split readings longer than 32000 characters into parts.')
             selected=self.voice_choice()
             key=(selected,float(self.speed_choice()),text)
             started=time.monotonic()
@@ -90,7 +92,8 @@ class SpeechEngine:
             last_error=None
             for choice in dict.fromkeys((selected,'af_heart','piper')):
                 try:
-                    wav=self._synthesize(text,choice)
+                    chunks=list(speech_chunks(text))
+                    wav=self._synthesize(chunks[0],choice) if len(chunks)==1 else combine_wavs(self._synthesize(chunk,choice) for chunk in chunks)
                     with wave.open(io.BytesIO(wav),'rb') as audio:
                         if audio.getsampwidth()!=2 or audio.getnframes()<audio.getframerate()*.05:
                             raise RuntimeError('Voice returned no playable speech.')
@@ -128,7 +131,7 @@ class SpeechEngine:
                     session=ort.InferenceSession(str(ROOT/'runtime/speech/kokoro-v1.0.onnx'),options,
                                                 providers=['CPUExecutionProvider'])
                     self.kokoro=Kokoro.from_session(session,str(ROOT/'runtime/speech/voices-v1.0.bin'))
-                samples,rate=self.kokoro.create(str(text)[:2400],voice=selected,speed=float(self.speed_choice()),
+                samples,rate=self.kokoro.create(str(text),voice=selected,speed=float(self.speed_choice()),
                     lang='en-gb' if selected.startswith('b') else 'en-us',sentence_pause=.22,clause_pause=.12)
                 output=io.BytesIO()
                 with wave.open(output,'wb') as wav:
@@ -142,7 +145,7 @@ class SpeechEngine:
                 self.status['voice'] = 'Piper Ryan · local'
             output = io.BytesIO()
             with wave.open(output, 'wb') as wav:
-                self.voice.synthesize_wav(str(text)[:2400], wav)
+                self.voice.synthesize_wav(str(text), wav)
             return output.getvalue()
 
     @staticmethod

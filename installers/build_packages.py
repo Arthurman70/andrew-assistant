@@ -1,4 +1,4 @@
-"""Build public packages exclusively from committed, non-private source files."""
+"""Build public packages exclusively from staged/committed, non-private source files."""
 import hashlib
 import json
 from pathlib import Path
@@ -11,7 +11,9 @@ def main():
     for file in files:
         if any(part in ('data','runtime','.venv','downloads','.git') for part in Path(file).parts):raise ValueError('Private file in export: '+file)
     def exported(name):
-        data=(ROOT/name).read_bytes()
+        if name=='package_manifest.json':return (ROOT/name).read_bytes()
+        data=subprocess.check_output(['git','show',':'+name],cwd=ROOT)
+        if Path(name).suffix in ('.ps1','.cmd'):return data.replace(b'\r\n',b'\n').replace(b'\n',b'\r\n')
         return data.replace(b'\r\n',b'\n') if Path(name).suffix in ('.sh','.service') else data
     registry={name:hashlib.sha256(exported(name)).hexdigest() for name in files if name!='package_manifest.json'}
     (ROOT/'package_manifest.json').write_text(json.dumps({'files':registry},indent=2)+'\n',encoding='utf-8')

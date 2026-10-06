@@ -2,7 +2,7 @@
 import json
 import re
 import time
-from conversation_memory import clean
+from conversation_memory import clean,clean_data
 
 class TaskMemory:
     def __init__(self,app):
@@ -32,11 +32,11 @@ class TaskMemory:
             steps.append({'action':action['action'],'args':args,'purpose':action.get('progress','')})
         with self.app.lock,self.app.db:
             self.app.db.execute('DELETE FROM task_recipes WHERE owner=? AND request=?',(self.owner(person,source),clean(request)))
-            self.app.db.execute('INSERT INTO task_recipes(owner,request,steps,result,used) VALUES(?,?,?,?,?)',(self.owner(person,source),clean(request),clean(json.dumps(steps)),clean(answer),time.time()))
+            self.app.db.execute('INSERT INTO task_recipes(owner,request,steps,result,used) VALUES(?,?,?,?,?)',(self.owner(person,source),clean(request),json.dumps(clean_data(steps)),clean(answer),time.time()))
 
     def save(self,source,person,request,history,steps,provider,model,status):
         # Keep the latest observation plus logical action outcomes. No audio.
-        payload=clean(json.dumps(history,ensure_ascii=False))
+        payload=json.dumps(clean_data(history),ensure_ascii=False)
         with self.app.lock,self.app.db:
             self.app.db.execute('INSERT OR REPLACE INTO task_checkpoints VALUES(?,?,?,?,?,?,?,?,?)',(source,self.owner(person,source),clean(request),payload,json.dumps(steps),provider,model,status,time.time()))
 

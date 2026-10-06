@@ -11,6 +11,7 @@ import subprocess
 import threading
 import time
 import urllib.request
+from reading import MAX_TEXT,needs_detail
 
 ROOT = Path(__file__).resolve().parent
 DEFAULTS = {'name': 'Andrew', 'provider': 'grok', 'grok_model':'grok-4.7-build-fast', 'local_model': 'qwen3:0.6b',
@@ -209,6 +210,7 @@ class Andrew:
         provider = provider or self.get('provider')
         coding = purpose == 'improvement'
         raw=purpose!='conversation'
+        detailed=needs_detail(prompt)
         selected_model = self.get(provider+'_model') if model is None else model
         if not hasattr(self,'memory_ai_lock'):self.memory_ai_lock=threading.Lock()
         lock = self.memory_ai_lock if purpose=='memory' else (self.improvement_ai_lock if coding else self.ai_lock)
@@ -240,8 +242,8 @@ class Andrew:
                     answer=self.actions.consume(answer,getattr(self.request,'source','pc'))
                 if key[0]:
                     self.conversations[key] = (time.monotonic(),(history+[
-                        {'role':'user','content':prompt[:4000]},
-                        {'role':'assistant','content':answer[:4000]}])[-6:])
+                        {'role':'user','content':prompt[:MAX_TEXT]},
+                        {'role':'assistant','content':answer[:MAX_TEXT]}])[-6:])
                 return answer
             conversation = prompt if raw else '\nConversation:\n'+json.dumps(history+[{'role':'user','content':prompt}])
             if provider=='grok':
@@ -273,7 +275,7 @@ class Andrew:
                     'model': selected, 'stream': False, 'think': False,
                     **({'format':response_schema or ('json' if raw else conversation_schema())} if not images and (purpose!='memory' or response_schema) else {}),
                     'messages': [{'role': 'system', 'content': system}] + history + [user_message],
-                    'options': {'num_predict':8192 if coding else (2400 if purpose=='memory' else 600), 'num_ctx':32768 if coding or purpose=='memory' else (16384 if purpose=='planner' else 8192),
+                    'options': {'num_predict':8192 if coding else (2400 if purpose=='memory' else (4096 if detailed else 600)), 'num_ctx':32768 if coding or purpose=='memory' else (32768 if detailed else (16384 if purpose=='planner' else 8192)),
                                 **({'temperature':0} if coding else {})}}, timeout=600 if coding else 120)
                 answer = result['message']['content']
                 if '</think>' in answer:
@@ -355,13 +357,18 @@ class Andrew:
     def _command(self, text, source='pc'):
         self.request.source = source
         self.request.speech_silent=False
-        if not isinstance(text, str) or not 1 <= len(text.strip()) <= 4000:
-            raise ValueError('Enter a command between 1 and 4000 characters.')
-        text = text.strip().rstrip('.!?')
+        if not isinstance(text, str) or not 1 <= len(text.strip()) <= MAX_TEXT:
+            raise ValueError('Enter a command between 1 and 32000 characters.')
+        raw_text=text.strip()
+        text=raw_text.rstrip('.!?')
         text = re.sub(r'^(?:hey\s+)?' + re.escape(self.get('name')) + r'\b[,\s]*', '', text, flags=re.I)
         text = re.sub(r'^(?:please\s+)?(?:(?:can|could|would|will) you\s+)?(?:please\s+)?', '', text, flags=re.I)
         text = re.sub(r',?\s+please$', '', text, flags=re.I)
         low = text.lower()
+        raw_reading=re.sub(r'^(?:hey\s+)?'+re.escape(self.get('name'))+r'\b[,\s]*','',raw_text,flags=re.I)
+        raw_reading=re.sub(r'^(?:please\s+)?(?:(?:can|could|would|will) you\s+)?(?:please\s+)?','',raw_reading,flags=re.I)
+        pasted=re.match(r'^read(?: (?:aloud|word for word|verbatim))? (?:this|the following)(?: text|passage|article|document)?\s*[:\n]\s*([\s\S]+)$',raw_reading,re.I)
+        if pasted:return pasted[1]
         if not getattr(self.request,'action_internal',False):
             self.request.improvement_authorized=bool(re.match(r'^(?:improve yourself|self[ -]improve|(?:improve|fix|update|edit) your (?:code|app|software))\b',low))
         # Resolve assistant naming locally before profiles, games or AI routing.

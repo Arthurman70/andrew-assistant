@@ -10,6 +10,12 @@ SECRETS=re.compile(r"(?i)(?:sk-[a-z0-9_-]{16,}|(?:password|passcode|api[ _-]?key
 def clean(text):
     return SECRETS.sub('[credential omitted]',str(text))
 
+def clean_data(value):
+    if isinstance(value,str):return clean(value)
+    if isinstance(value,dict):return {k:clean_data(v) for k,v in value.items()}
+    if isinstance(value,(list,tuple)):return [clean_data(v) for v in value]
+    return value
+
 def words(text):return len(re.findall(r"\b[\w’'-]+\b",text))
 
 class ConversationMemory:

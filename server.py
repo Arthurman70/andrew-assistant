@@ -58,7 +58,7 @@ def voice_wav(text):
 
 def speak(text):
     if APP.get('pc_speech'):
-        queue_speech(str(text)[:2000])
+        queue_speech(str(text))
 
 
 def speech_worker():
@@ -150,7 +150,8 @@ def pc_task_finished(answer, source):
     if INTERRUPT.active(source):return
     if source=='pi':
         if time.time()-APP.relay_seen<20:
-            PI_AUDIO.put((time.time()+60,base64.b64encode(voice_wav(answer)).decode()),timeout=10)
+            encoded=base64.b64encode(voice_wav(answer)).decode()
+            PI_AUDIO.put((time.time()+60,encoded),timeout=10)
         else: speak(answer)
     else: speak(answer)
 

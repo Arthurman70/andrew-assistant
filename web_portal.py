@@ -87,7 +87,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.server.mode=='bridge':headers={'X-Andrew-Local':'1','Content-Type':'application/json'}
         req=urllib.request.Request(self.server.config['upstream']+path,None if payload is None else json.dumps(payload).encode(),headers)
         try:
-            with urllib.request.urlopen(req,timeout=185) as response:
+            with urllib.request.urlopen(req,timeout=900 if path in ('/api/browser-voice','/api/browser-command','/api/browser-notifications') else 185) as response:
                 self.reply(response.status,response.read(),response.headers.get('Content-Type','application/json'))
         except urllib.error.HTTPError as exc:self.reply(exc.code,exc.read(),exc.headers.get('Content-Type','application/json'))
         except Exception:self.reply(503,{'error':'Your host PC is offline. Open Andrew on the PC and try again.'})

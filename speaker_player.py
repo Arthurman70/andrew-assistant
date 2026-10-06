@@ -7,6 +7,7 @@ import queue
 import subprocess
 import threading
 import time
+from audio_utils import playback_timeout
 
 ROOT=Path(__file__).resolve().parent
 
@@ -46,7 +47,7 @@ class SpeakerPlayer:
                 self.start()
                 self.process.stdin.write(json.dumps({'audio':base64.b64encode(wav).decode(),
                     'device':device or 'auto','volume':volume})+'\n');self.process.stdin.flush()
-                deadline=time.monotonic()+120
+                deadline=time.monotonic()+playback_timeout(wav)
                 while True:
                     message=self.responses.get(timeout=max(.01,deadline-time.monotonic()))
                     if message.get('error'):raise RuntimeError(message['error'])

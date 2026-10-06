@@ -17,7 +17,7 @@ import time
 import urllib.request
 from wake_capture import WakeCapture
 from wake_detector import wake_phrase
-from audio_utils import scale_wav
+from audio_utils import scale_wav,playback_timeout
 from camera_capture import CameraCapture
 from interruption import InterruptDetector, remaining_wav
 import io
@@ -72,7 +72,7 @@ def api(path, data=None):
     req = urllib.request.Request(CONFIG['pc_url']+path,
         None if data is None else json.dumps(data).encode(),
         {'Authorization':'Bearer '+CONFIG['token'],'Content-Type':'application/json'})
-    with urllib.request.urlopen(req,context=TLS,timeout=180 if path=='/api/voice' else (60 if path=='/api/camera-capture' else 8)) as reply:
+    with urllib.request.urlopen(req,context=TLS,timeout=900 if path=='/api/voice' else (60 if path=='/api/camera-capture' else 8)) as reply:
         return json.load(reply)
 
 def devices(command):
@@ -119,7 +119,7 @@ def play(encoded):
                 if time.monotonic()<SPEECH_STATE['cancel_until']:return
                 process=subprocess.Popen(['aplay','-q','-D',speaker()],stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
                 SPEECH_STATE.update(process=process,wav=content,start=time.monotonic())
-            process.communicate(scale_wav(content,CONFIG.get('volume',80)),timeout=120)
+            process.communicate(scale_wav(content,CONFIG.get('volume',80)),timeout=playback_timeout(content))
             if process.returncode and process.returncode>=0:raise RuntimeError('Speaker playback failed.')
             STATE.update(playback_finished_at=time.time(),playback_state='finished')
         except Exception:

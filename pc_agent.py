@@ -1,7 +1,7 @@
-"""Bounded observe/action/result loop using the signed-in Grok account.
+"""Bounded observe/action/result loop using the selected account.
 
 Models propose structured actions; the local adapter validates and executes them.
-Task context and screen contents stay in RAM and expire after fifteen minutes.
+Person-scoped checkpoints retain task progress across restarts.
 """
 import json
 import subprocess
@@ -13,12 +13,14 @@ import time
 SYSTEM='''You are Andrew's PC task planner. Fulfil the user's whole request using the
 listed tools, observing the result of each action before deciding the next step.
 Output ONLY one JSON object. No Markdown and no hidden or invented tools.
-An action: {"action":"windows|inspect|click|key|type|open|close_tab|local|wait","args":{...},"progress":"Short user-facing next step"}.
+An action: {"action":"windows|inspect|read|click|key|type|open|close_tab|local|wait","args":{...},"progress":"Short user-facing next step"}.
 A final result: {"action":"finish","status":"complete|needs_input|failed","answer":"Concise spoken result"}.
 Tools:
  windows {}: list available desktop windows and installed app names. Open an installed program using its exact listed name.
  wait {"seconds":1..5}: wait briefly, then observe the current app. Use while an AI reply/build is still running.
- inspect {"window":integer} or {}: read visible controls in a selected window.
+ inspect {"window":integer} or {}: inspect visible controls in a selected window.
+ read {"ref":"fresh readable Text/Document/Edit reference","offset":0,"limit":12000}: read longer app, article, document or AI-response text in chunks. Reuse next_offset while has_more is true. This preserves the reference until a UI action or re-inspection.
+ Screen names are previews; text_truncated means unseen content remains. Read more whenever the job needs it; do not conclude from a truncated excerpt. For whole-document or word-for-word requests, read through all required sections. Keep ordinary summaries brief, but return the full requested reading or necessary details, up to 32000 characters.
  click {"ref":"exact fresh reference from last observation"}: invoke a visible control.
  key {"key":"chrome_menu|escape|next_tab|previous_tab|page_down|page_up|submit"}: navigation and editing shortcuts. Also save, save_as, new_document, select_all, undo, redo, tab. Submit presses Enter in an AI app or the editor just typed into. Never use terminal windows.
  type {"ref":"fresh typable text box ref","text":"requested text"}: type into the observed app editor or AI chat box. Empty Edit controls are valid. Never enter credentials or terminal commands.
@@ -65,6 +67,7 @@ def is_pc_task(text, source='pc'):
     if re.search(r'\b(camera|webcam|microphone|password|model|thermostat|lights|voice)\b',low) and not re.match(r'(?:build|create|develop|write|design|make|use .* app to)\b',low):return False
     if re.fullmatch(r'(?:use|switch to|change to)(?: model)? (?:grok|claude|openai|open ai|chatgpt|chat gpt|local|haiku|sonnet|opus)(?: .+)?',low): return False
     if re.search(r'\b(?:cast|chromecast|chrome cast)\b',low): return True
+    if re.match(r'(?:read|review|summari[sz]e|analy[sz]e|research|compare)\b',low) and re.search(r'\b(?:screen|page|document|article|tab|file|claude|chatgpt|report)\b',low):return True
     if re.match(r'(?:build|create|develop|write|design|make)\b',low) and re.search(r'\b(?:app|application|program|website|game|document|file|presentation|spreadsheet|software)\b',low):return True
     if re.match(r'(?:(?:go ahead and )?(?:use|take over|control) (?:my |the )?(?:pc|computer|chrome|desktop)(?: to|,| and|:) ?|on (?:my |the )?(?:pc|computer)[,:] ?|(?:open|launch|close|find|search|play|pause|resume|stop|switch|go to|click|browse)\b)',low):
         if re.search(r'\b(?:timer|alarm|listening|yourself|your voice)\b',low):
@@ -88,7 +91,7 @@ def decision(raw):
         raw=re.sub(r'^```(?:json)?\s*','',raw);raw=re.sub(r'\s*```$','',raw)
     from improvements import json_response
     value=json_response(raw)
-    if not isinstance(value,dict) or value.get('action') not in ('windows','inspect','click','key','type','open','close_tab','local','wait','finish'):
+    if not isinstance(value,dict) or value.get('action') not in ('windows','inspect','read','click','key','type','open','close_tab','local','wait','finish'):
         raise ValueError('Grok did not return a supported next action.')
     if value['action']!='finish' and not isinstance(value.get('args',{}),dict): raise ValueError('Invalid action arguments.')
     return value
@@ -208,7 +211,7 @@ class PCAgent:
                 if self.cancelled.is_set(): status='cancelled';answer='PC task stopped.';break
                 action=value['action'];args=value.get('args',{})
                 if action=='finish':
-                    answer=str(value.get('answer',''))[:1800]
+                    answer=str(value.get('answer',''))[:32000]
                     status=value.get('status','failed')
                     if status not in ('complete','needs_input','failed'): status='failed'
                     if status=='complete' and not any(s['ok'] for s in steps):

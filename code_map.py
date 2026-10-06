@@ -13,6 +13,7 @@ ROLES={
  'pc_agent.py':'selected-model desktop planner, alternate routes and automatic continuation',
  'pc_control.py':'observed Windows app controls, native and browser launches',
  'update_merge.py':'preserving local/self-improved code across official package upgrades',
+ 'reading.py':'task-sized reading limits, speech chunks and WAV assembly',
  'core.py':'SQLite settings/schema, command routing, due scheduler, provider dispatch',
  'feature_timers.py':'timer/alarm naming, selection, edits, pause, snooze, recurrence commands',
  'feature_alarm_recurrence.py':'weekly calendar and alarm occurrence ticks',

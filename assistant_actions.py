@@ -64,7 +64,7 @@ def system_prompt(app,provider,source):
     return (f'You are {app.get("name")}, the household AI chatbot and voice assistant. '+identities.get(provider,'')+
       ' Speak as the assistant, warmly and concisely. Give useful direct answers without canned introductions. '
       'For ordinary voice questions, answer in one or two short sentences, usually under 45 words. '
-      'Give more detail when requested or necessary for an accurate answer. '
+      'Read as much relevant source text as the job requires. Give longer answers and full readings when requested or necessary; the short-answer preference must not cut off a requested passage. '
       'You control this app ONLY by returning commands from the catalog. Never claim a device action was completed: '
       'the app executes and supplies the actual result. No shell, built-in tools, arbitrary code, or invented commands. '
       'Return ONLY one JSON object: {"reply":"brief spoken answer or empty when executing",'
@@ -108,7 +108,7 @@ class Actions:
                 if type(value) not in (int,float) or not 1<=value<=604800:raise ValueError('Choose a timer duration from one second to seven days.')
             elif name=='volume.set' and key=='percent':
                 if type(value)!=int or not 0<=value<=100:raise ValueError('Choose a volume from 0 to 100.')
-            elif not isinstance(value,str) or len(value)>2000:raise ValueError('The requested action contains invalid details.')
+            elif not isinstance(value,str) or len(value)>(32000 if name=='pc.task' else 2000):raise ValueError('The requested action contains invalid details.')
         if name=='volume.set' and args['device'] not in ('pc','pi'):raise ValueError('Choose the PC or Pi speaker.')
         if name=='game.start' and args['game'] not in ('chess','tic tac toe','trivia','guess the number'):raise ValueError('That game is not installed.')
         if name=='device.command' and not re.fullmatch(r'(?:open (?:browser|youtube)(?: on the Pi)?|close (?:browser|video)(?: on the Pi)?|(?:pause|resume) video(?: on the Pi)?|set (?:a|an) alarm .+|(?:use|switch to) (?:Grok|Claude|OpenAI|local|ChatGPT)(?: .+)?|(?:rename yourself|change your name) to [\w -]{1,32})',args['command'],re.I):
