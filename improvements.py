@@ -161,6 +161,11 @@ def check_source(name, content):
         if result.returncode:raise ValueError('JavaScript syntax check failed: '+result.stderr[:1200])
     elif name.endswith(('.json','.webmanifest')):
         value=json.loads(content)
+        if name=='companion/manifest.json':
+            sites={'https://www.google.com/*','https://duckduckgo.com/*','https://www.bing.com/*','https://chatgpt.com/*','https://claude.ai/*','https://grok.com/*'}
+            permissions={'activeTab','tabs','scripting','nativeMessaging','storage','alarms'}
+            if value.get('manifest_version')!=3 or not set(value.get('host_permissions',[])).issubset(sites) or not set(value.get('permissions',[])).issubset(permissions):
+                raise ValueError('Companion updates cannot silently broaden automatic website or browser permissions. Other sites require the popup per-site grant.')
         if name=='source_manifest.json' and (not isinstance(value,list) or any(not source_name(n) for n in value)):
             raise ValueError('The source manifest can list only application code.')
     elif name.endswith('.ps1'):

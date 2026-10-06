@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Andrew Companion",
+  "version": "0.1.0",
+  "description": "Connect your browser to Andrew for requested searches, page reading and browser tasks.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwp/u4DmXPr4lZaDCTImTmSmJ3zT4032hphESu9Nj6AhLtuTlu/88f5vdj6RCkDQdWe4DG+yl+OxNi3Pw4yTl9CmnnYckJkiJsYwUcisWMGVfWiSoX2CRdbOPykaNJfm5LQD7S1moT0aC9D54DLhLD6IxfJldlWnZgLkg/HjW60KY/YkipaX1nVMUV6zW8QegfDkk+SoVFnpggujy3pOzdoMvkZ87zJkjUlnIzR+c7a02qMt0owVhLPrjMwl/nM8Y0U27ZQJzQL5DJhfLEEHgNMWjUGVVBYkDekLX8rIzGHWrz9pWw8H+uNC7ZgHSLnPtnKd88AyVPtEWkaQ5ma+JSQIDAQAB",
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "scripting",
+    "nativeMessaging",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://www.google.com/*",
+    "https://duckduckgo.com/*",
+    "https://www.bing.com/*",
+    "https://chatgpt.com/*",
+    "https://claude.ai/*",
+    "https://grok.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Andrew Companion"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
+}

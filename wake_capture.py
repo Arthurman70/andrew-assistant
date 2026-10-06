@@ -1,6 +1,7 @@
 """Capture one request only after keyword detection. No background transcription."""
 from collections import deque
 import numpy as np
+import time
 import webrtcvad
 from wake_detector import WakeDetector
 from background_guard import BackgroundGuard
@@ -22,6 +23,14 @@ class WakeCapture:
         self.active=False
         self.silence=self.voiced=self.frames=0
         self.threshold=30
+        self.followup_until=0;self.followup_grant=None;self.last_grant=None;self.activation='wake'
+
+    def offer_followup(self,grant,seconds):
+        if grant!=self.followup_grant:
+            self.followup_grant=grant;self.followup_until=time.monotonic()+max(0,seconds)
+
+    def close_followup(self):
+        self.followup_grant=None;self.followup_until=0
 
     def reset(self):
         self.detector.reset();self.context.clear();self.request.clear()
@@ -35,11 +44,22 @@ class WakeCapture:
         rms=float(np.sqrt(np.mean(values*values)))
         if not self.active:
             speech=self.vad.is_speech(frame,16000) and rms>=30
+            followup_floor=self.background.command_floor()
             self.background.observe(rms,speech)
             self.cautious=self.background.cautious(media,mode)
             if self.cooldown:
                 self.cooldown-=1
                 return None
+            if self.followup_grant and self.followup_until>time.monotonic() and not media:
+                floor=followup_floor
+                if self.command_vad.is_speech(frame,16000) and rms>=max(35,floor*(2.2 if mode=='strict' else 1.5)):
+                    self.request.clear();self.request.extend(frame)
+                    self.active=True;self.activation='followup';self.last_grant=self.followup_grant
+                    self.phase='follow-up listening';self.threshold=floor;self.frames=1;self.voiced=1;self.silence=0
+                    self.close_followup();self.context.clear();return None
+                self.phase='follow-up listening'
+            else:
+                self.close_followup();self.phase='waiting for name'
             self.context.append(frame)
             boundary=self.detector.accept(frame)
             if boundary is None: return None
@@ -51,7 +71,7 @@ class WakeCapture:
             context=b''.join(self.context)
             retained=max(0,min(len(context),(self.detector.samples-boundary)*2))
             self.request.extend(context[-retained:] if retained else b'')
-            self.context.clear();self.active=True;self.phase='listening'
+            self.context.clear();self.active=True;self.phase='listening';self.activation='wake';self.last_grant=None;self.close_followup()
             # The strict foreground gate has already accepted the wake name.
             # Quiet/short command syllables need a more tolerant speech detector.
             self.command_vad=webrtcvad.Vad(1)
@@ -68,6 +88,8 @@ class WakeCapture:
                 if self.command_vad.is_speech(kept,16000) and float(np.sqrt(np.mean(level*level)))>=self.threshold:
                     self.voiced+=1
             return None
+        if self.activation=='followup' and self.detector.accept(frame) is not None:
+            self.activation='wake';self.last_grant=None
         self.request.extend(frame);self.frames+=1
         speech=self.command_vad.is_speech(frame,16000) and rms>=self.threshold
         self.voiced+=int(speech);self.silence=0 if speech else self.silence+1

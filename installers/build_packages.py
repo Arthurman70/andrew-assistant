@@ -32,6 +32,10 @@ def main():
         for file in files:
             if file.startswith(('web/','assets/','installers/')) or file in ('web_portal.py','app.html','bridge_runner.py','README.md','DEPLOYMENT.md','LICENSE','COPYING','THIRD_PARTY.md'):
                 add(archive,file)
+    with zipfile.ZipFile(dist/'Andrew-Companion.zip','w',zipfile.ZIP_DEFLATED) as archive:
+        for file in files:
+            if file.startswith('companion/') or file in ('LICENSE','COPYING'):
+                archive.writestr('Andrew-Companion/'+file,exported(file))
     if shutil.which('iexpress'):
         stage=dist/'setup';stage.mkdir(exist_ok=True)
         shutil.copy2(dist/'Andrew-Windows.zip',stage/'Andrew-Windows.zip');shutil.copy2(ROOT/'installers/setup.ps1',stage/'setup.ps1')
@@ -72,7 +76,7 @@ SourceFiles0={source}
         (stage/'Andrew.sed').write_text(sed,encoding='ascii')
         subprocess.run(['iexpress','/N','/Q',str(stage/'Andrew.sed')],check=True,timeout=90)
         if not (dist/'Andrew-Setup.exe').is_file():raise RuntimeError('Installer executable was not produced.')
-    names=['Andrew-Windows.zip','Andrew-Pi.zip','Andrew-Web.zip','Andrew-Setup.exe','Andrew-Android.apk']
+    names=['Andrew-Windows.zip','Andrew-Pi.zip','Andrew-Web.zip','Andrew-Companion.zip','Andrew-Setup.exe','Andrew-Android.apk']
     lines=[hashlib.sha256((dist/name).read_bytes()).hexdigest()+'  '+name for name in names if (dist/name).is_file()]
     (dist/'SHA256SUMS.txt').write_text('\n'.join(lines)+'\n',encoding='ascii')
     print('Public packages built:',', '.join(name for name in names if (dist/name).is_file()))

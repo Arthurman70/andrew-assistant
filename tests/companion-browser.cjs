@@ -1,0 +1,17 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const seen=[],listeners={};let sends=[];
+const port={onMessage:{addListener:fn=>listeners.native=fn},onDisconnect:{addListener:fn=>listeners.disconnect=fn},postMessage:m=>sends.push(m)};
+const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,getManifest:()=>({version:'0.1'}),connectNative:()=>port,onMessage:{addListener:fn=>listeners.message=fn},onStartup:{addListener:()=>{}},onInstalled:{addListener:()=>{}}},storage:{local:{get:async()=>({enabled:true}),set:()=>{}}},action:{setBadgeText:()=>{},setBadgeBackgroundColor:()=>{}},alarms:{create:()=>{},onAlarm:{addListener:()=>{}}},tabs:{query:async()=>[{id:7,url:'https://www.google.com',title:'Search',active:true}],get:async id=>({id,url:'https://www.google.com',title:'Search',status:'complete'}),create:async args=>{seen.push(args.url);return {id:8}},remove:async()=>{}},scripting:{executeScript:async args=>[{result:args.func(...args.args)}]}};
+const article={isConnected:true,offsetWidth:1,offsetHeight:1,innerText:'Document '.repeat(1800)+'ENDING',tagName:'MAIN',getAttribute:()=>null,getClientRects:()=>[1],matches:s=>s.split(',').some(x=>['article','main','[role=main]'].includes(x))};
+const password={...article,tagName:'INPUT',innerText:'secret',matches:s=>s.includes('input[type=password]')};
+const document={title:'Search results',body:article,querySelector:()=>article,querySelectorAll:()=>[article,password]};
+const ctx=vm.createContext({chrome,navigator:{userAgent:'Chrome'},URL,Map,Promise,setTimeout,clearTimeout,crypto:require('crypto').webcrypto,document,location:{hostname:'www.google.com',href:'https://www.google.com'},getComputedStyle:()=>({visibility:'visible'}),window:{scrollBy:()=>{}},Event:class{}});
+vm.runInContext(fs.readFileSync(require('path').join(__dirname,'../companion/background.js'),'utf8'),ctx);
+(async()=>{await Promise.resolve();const run=code=>vm.runInContext(code,ctx);
+ const search=await run("perform({action:'search',query:'pi microphone'},'search for pi microphone')");assert(search.searched);assert(seen[0].includes('pi%20microphone'));
+ const inspected=await run("perform({action:'inspect',tab:7},'read the page')");assert.equal(inspected.elements.length,1);assert(inspected.has_more);
+ const read=await run("perform({action:'read',tab:7,offset:12000},'read the whole page')");assert(read.text.endsWith('ENDING'));assert(read.complete);
+ await assert.rejects(run("perform({action:'navigate',url:'http://127.0.0.1:8765/'},'open a page')"));
+ assert.equal(listeners.message({type:'ask',request:'do something'},{id:'test',url:'https://evil.example'},()=>{}),false);
+ console.log('Companion search, page chunks, password exclusion and sender validation passed.');
+})().catch(e=>{console.error(e);process.exitCode=1});

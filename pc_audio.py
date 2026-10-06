@@ -53,12 +53,13 @@ class PCVoice:
 
     def worker(self):
         while True:
-            pcm, captured_at = self.requests.get()
+            pcm,captured_at,*metadata=self.requests.get()
+            grant=metadata[0] if metadata else None
             if self.app.snooze_remaining('pc') or not self.app.get('pc_listening'):
                 self.busy.clear();self.requests.task_done();continue
             self.busy.set(); self.update(phase='recognizing')
             try:
-                result = self.audio_handler(pcm, 'pc', captured_at=captured_at,wake_detected=True)
+                result=self.audio_handler(pcm,'pc',captured_at=captured_at,wake_detected=not bool(grant),**({'followup':grant} if grant else {}))
                 values = {'last_heard': result.get('transcript', ''), 'error': '', 'phase': 'listening'}
                 if result.get('answer'): values['last_answer'] = result['answer']
                 self.update(**values)
@@ -120,12 +121,17 @@ class PCVoice:
                     self.update(phase='speech paused' if action=='pause' else 'continuing',error='')
                 if occupied:
                     capture.reset();continue
+                followup=getattr(self.app,'followup',None)
+                window=followup.view('pc') if followup else {}
+                if window.get('active') and not self.media.active():capture.offer_followup(window['grant'],window['remaining'])
+                elif not capture.active:capture.close_followup()
+                self.update(followup_remaining=window.get('remaining',0) if window.get('active') else 0)
                 was_active=capture.active
                 request=capture.feed(frame,self.app.get('name'),self.app.get('pc_wake_mode'),self.media.active())
                 self.update(wake_phrase=wake_phrase(self.app.get('name')),background_guard=capture.cautious,
                             media_detected=self.media.active(),media_guard_ready=self.media.ready,
                             empty_wakes=capture.empty_wakes,rejected_wakes=capture.rejected_wakes)
-                if not was_active and capture.active:
+                if not was_active and capture.active and capture.activation=='wake':
                     with self.lock: self.state['wakes']+=1
                 if not self.busy.is_set(): self.update(phase=capture.phase)
                 if request is not None:
@@ -133,4 +139,4 @@ class PCVoice:
                     self.update(phase='recognizing')
                     # Capture pauses until this bounded request is handled.
                     # There is only one producer, so no detected request is dropped.
-                    self.requests.put((request,time.time()))
+                    self.requests.put((request,time.time(),capture.last_grant))

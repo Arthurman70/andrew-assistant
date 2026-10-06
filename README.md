@@ -12,6 +12,8 @@ Select a connected account in Connections. Install and sign in to the official [
 
 Choose a microphone and speaker in Settings. Say **“Hey Andrew, what time is it?”** or **“Hey Andrew, switch to Grok”**, **“use Claude Sonnet”**, **“what model are you using?”**.
 
+After a conversation reply finishes, PC/Pi listening stays open for **12 seconds** for one foreground follow-up without another wake phrase. A reply to that follow-up opens the next short window. Questions asked by a completed PC task also open this window. It respects microphone off, snooze, media/background checks and speaker identity; alerts do not start conversations. Settings → Follow-up listening can turn it off; End conversation closes the current window. Browser/mobile Talk remains explicit push-to-talk.
+
 Rename with **“Hey Andrew, I’ll call you Charlie”**, **“call yourself Alex”**, or **“change your name to Alex”**. The reply confirms the new **Hey + name** wake phrase; the name survives restarts. You can also use **Settings → Assistant name → Rename**. “My name is …” identifies the speaker and does not rename the assistant.
 
 Adaptive listening is slightly more tolerant in a quiet room. TV/media and quiet mode retain stronger foreground checks. Self-improvement can adjust `wake_tuning.json` within validated bounds; capture code can also be improved while preserving wake-only transcription and the complete wake phrase.
@@ -37,6 +39,16 @@ Copy **data/Andrew-Pi-private-pairing.zip** to the Pi, extract it, and run `bash
 For updates, verify the Pi SSH fingerprint, pin its key in `data/pi_known_hosts`, and create `data/satellite-pairing.json` with `address`, `user`, `host_alias`, and `mode: "writable"`. The installer places the host public key on the Pi. Existing recovery satellites use their paired key and runtime cache. Use **Connections → Pi updates → Push updates to Pi**. Queued updates survive a PC restart and install when the paired Pi reconnects; deployment status remains visible.
 
 ## Browser, widget, PWA, Android
+
+### Andrew Companion for Chrome/Edge
+
+The open-source [companion](companion/README.md) connects Andrew to your regular signed-in browser. When connected, Andrew prefers it for searches, opening pages, reading longer pages in chunks and observed page controls. Desktop controls remain available for browser chrome and features such as casting. No separate browser profile or account sign-in is created.
+
+From the installed Andrew folder, open **Install Companion.cmd** (or run `.venv\Scripts\python.exe companion\install.py --register`), then open `chrome://extensions`, enable Developer mode, choose Load unpacked and select the **companion** folder. Edge uses `--browser edge` and `edge://extensions`. Connections shows the live connection. Releases also include **Andrew-Companion.zip**; the native connector still needs the complete Windows host package. See the companion README for installation and permissions.
+
+Automatic page access covers Google, DuckDuckGo, Bing, ChatGPT, Claude and Grok. Other sites require opening the companion on the current tab or an explicit **Allow this site** grant. The companion does not export cookies, passwords or browser history, or continuously collect page contents. Pause its connection from its toolbar popup. Requested pages and observed controls go to the host only during tasks and may be used by your selected AI account.
+
+### Website and mobile clients
 
 The authenticated HTTPS gateway connects to the Windows host. It uses the same app pages and accounts. Replies play on the requesting browser with their own volume. Talk records one explicit request for local host recognition. A foreground browser and awake PC are required.
 
@@ -89,7 +101,7 @@ Improvements stage changes, run checks, back up, install, and support rollback. 
 
 ## Privacy and development
 
-Before a PC/Pi wake, only keyword spotting and numerical acoustic checks run. Background conversations are not transcribed or saved. Activated requests are processed in memory; addressed text/preferences may go to the selected AI account. Photos/videos are captured locally only when requested, then sent to AI only on request. Named preferences stay local. Speaker matching is probabilistic and is never authentication.
+Before a PC/Pi wake, only keyword spotting and numerical acoustic checks run. The exception is a visible, bounded conversation window after an addressed reply: one foreground follow-up can be transcribed without another wake phrase. Media/background guards still apply, and it closes on timeout, snooze, microphone off or End conversation. Activated requests are processed in memory; addressed text/preferences may go to the selected AI account. Photos/videos are captured locally only when requested, then sent to AI only on request. Named preferences stay local. Speaker matching is probabilistic and is never authentication.
 
 Python 3.12 on Windows: create `.venv`, install `requirements.txt`, then run `python -m unittest discover -s tests`. Physical microphone/speaker, account, and Pi validation are separate from automated tests. Public source excludes user data, models, keys, account sessions, and private deployment files. GPL-3.0-or-later; see LICENSE, COPYING, THIRD_PARTY.md.
 

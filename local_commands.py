@@ -71,6 +71,12 @@ def route(app, text, source):
             url=web_url(direct[1])
     if url:
         if target=='pi': return app.display_job('open',url)
+        companion=getattr(app,'companion',None)
+        if companion and companion.status()['connected']:
+            from urllib.parse import parse_qs
+            query=parse_qs(urlsplit(url).query).get('q',[''])[0]
+            result=companion.perform({'action':'search','query':query} if query else {'action':'navigate','url':url},request=text)
+            return 'Search opened in your connected browser.' if query else 'Opened the page in your connected browser.'
         import webbrowser
         webbrowser.open(url)
         return 'Opened the browser on your PC.'

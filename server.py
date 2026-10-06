@@ -23,8 +23,12 @@ from satellite_manager import SatelliteManager
 from pc_agent import PCAgent
 from speaker_player import SpeakerPlayer
 from interruption import SpeechInterruption
+from followup import FollowupSessions
+from browser_companion import BrowserCompanion
 
 APP = Andrew()
+FOLLOWUP=FollowupSessions(APP);APP.followup=FOLLOWUP
+COMPANION=BrowserCompanion(APP,ROOT);APP.companion=COMPANION
 TOKEN_PATH = ROOT / 'data' / 'relay-token.txt'
 if not TOKEN_PATH.exists():
     TOKEN_PATH.write_text(secrets.token_urlsafe(48), encoding='utf-8')
@@ -44,9 +48,9 @@ PLAYER=SpeakerPlayer()
 RETRY_TEXT='I missed the request. Please say my name and try again.'
 
 
-def queue_speech(message, cancel=None, ticket=None):
+def queue_speech(message, cancel=None, ticket=None, followup=None):
     # Backpressure rather than silently throwing away an answer on a full queue.
-    SPEECH.put((message,cancel,ticket or INTERRUPT.ticket('pc')),timeout=10)
+    SPEECH.put((message,cancel,ticket or INTERRUPT.ticket('pc'),followup),timeout=10)
 
 
 def voice_wav(text):
@@ -56,9 +60,9 @@ def voice_wav(text):
         return fallback.read_bytes() if fallback.is_file() else ENGINE.cue()
 
 
-def speak(text):
+def speak(text, followup=None):
     if APP.get('pc_speech'):
-        queue_speech(str(text))
+        queue_speech(str(text),followup=followup)
 
 
 def speech_worker():
@@ -71,7 +75,8 @@ def speech_worker():
             if isinstance(message,tuple):
                 message,cancel,*rest=message
                 ticket=rest[0] if rest else INTERRUPT.ticket('pc')
-            else:message,cancel,ticket=message,None,INTERRUPT.ticket('pc')
+                followup=rest[1] if len(rest)>1 else None
+            else:message,cancel,ticket,followup=message,None,INTERRUPT.ticket('pc'),None
             if ticket.is_set():continue
             if cancel and cancel.is_set():continue
             wav = message if isinstance(message, bytes) else voice_wav(message)
@@ -81,6 +86,7 @@ def speech_worker():
                 SESSIONS.update('pc',playback_started_at=time.time(),playback_state='playing',error='',
                     output=values['device'],output_fallback=values['fallback'])
             PLAYER.play(wav,APP.get('pc_output'),APP.get('pc_volume'),started)
+            if followup and not ticket.is_set() and not INTERRUPT.active('pc'):FOLLOWUP.arm('pc',followup)
             SESSIONS.update('pc',playback_finished_at=time.time(),playback_state='paused' if INTERRUPT.active('pc') else 'finished')
         except Exception as exc:
             SESSIONS.update('pc',playback_state='failed',error='Speaker playback failed. Choose a connected speaker in Audio settings.')
@@ -116,7 +122,7 @@ def voice_command(text, source, pc_speak=False):
         with ResponseProgress(source):answer = APP.command(text, source)
         if not isinstance(answer,str) or not answer.strip():
             answer='I could not finish that request. Please try again.'
-        if (getattr(APP.request,'voice_context',False) and not APP.memory.current(source)
+        if (not getattr(APP.request,'followup_context',False) and getattr(APP.request,'voice_context',False) and not APP.memory.current(source)
                 and time.time()>APP.memory.prompted.get(source,0)
                 and not re.search(r'call|text|message|stop|cancel|snooze|guest',text,re.I)):
             APP.memory.prompted[source]=time.time()+600
@@ -130,15 +136,16 @@ def voice_command(text, source, pc_speak=False):
     return {'accepted': True, 'answer': answer,'silent':silent}
 
 
-def audio_response(text, source, ticket=None):
+def audio_response(text, source, ticket=None, followup=None):
     if ticket and ticket.is_set():return {}
     wav = voice_wav(text)
     if ticket and ticket.is_set():return {}
     if source == 'pc':
-        if APP.get('pc_speech'):queue_speech(wav,ticket=ticket)
+        if APP.get('pc_speech'):queue_speech(wav,ticket=ticket,followup=followup)
+        elif followup:FOLLOWUP.arm('pc',followup)
         return {}
     PLAYBACK.record(wav,'pi')
-    return {'audio': base64.b64encode(wav).decode()}
+    return {'audio':base64.b64encode(wav).decode(),**({'followup_grant':followup} if followup else {})}
 
 
 def pc_task_finished(answer, source):
@@ -148,12 +155,17 @@ def pc_task_finished(answer, source):
         except queue.Full:pass
         return
     if INTERRUPT.active(source):return
+    state=APP.pc_agent.status() if APP.pc_agent else {}
+    person=state.get('person') if state.get('source')==source and time.time()-state.get('finished_at',0)<5 else APP.memory.current(source)
+    grant=FOLLOWUP.prepare(source,person)
     if source=='pi':
         if time.time()-APP.relay_seen<20:
             encoded=base64.b64encode(voice_wav(answer)).decode()
-            PI_AUDIO.put((time.time()+60,encoded),timeout=10)
-        else: speak(answer)
-    else: speak(answer)
+            PI_AUDIO.put((time.time()+60,encoded,None,grant),timeout=10)
+        else:speak(answer,followup=FOLLOWUP.prepare('pc',person))
+    else:
+        if APP.get('pc_speech'):speak(answer,followup=grant)
+        elif grant:FOLLOWUP.arm('pc',grant)
 
 
 APP.pc_agent=PCAgent(APP,notify=pc_task_finished)
@@ -168,6 +180,7 @@ def resumed_audio(wav,source):
 INTERRUPT=SpeechInterruption(PLAYER,resumed_audio)
 
 def speech_control(source,action):
+    FOLLOWUP.close(source)
     result=INTERRUPT.control(source,action)
     if action in ('pause','stop'):
         PLAYBACK.stop(source)
@@ -183,10 +196,11 @@ APP.speech_control=speech_control
 APP.speech_interruption=INTERRUPT
 
 
-def handle_audio(pcm, source, manual=False, captured_at=None,wake_detected=False):
+def handle_audio(pcm, source, manual=False, captured_at=None,wake_detected=False,followup=None):
     if APP.snooze_remaining(source) or not APP.get(source+'_listening'):
         return {'accepted':False,'transcript':'','answer':'','sleeping':True}
-    if not wake_detected:
+    continuation=FOLLOWUP.claim(source,followup) if followup else None
+    if not wake_detected and not continuation:
         return {'accepted':False,'transcript':'','answer':'','wake_required':True}
     end = captured_at or time.time()
     if PLAYBACK.overlaps(end-len(pcm)/32000,end):
@@ -220,15 +234,23 @@ def handle_audio(pcm, source, manual=False, captured_at=None,wake_detected=False
     APP.request.captured_at=end
     APP.memory.begin_voice(pcm,source,command)
     identified=time.monotonic()
+    if continuation and continuation.get('person'):
+        matched=APP.memory.current(source)
+        if matched and matched!=continuation['person']:
+            APP.memory.end_voice();return {'accepted':False,'transcript':'','answer':'','wake_required':True}
+        if matched is None and getattr(APP.request,'embedding',None) is None:APP.request.person=continuation['person']
     if command.lower().strip().rstrip('.!?') not in ('shut up','stop talking','pause speaking','be quiet','continue','keep going','resume speaking'):
         ticket=INTERRUPT.new_request(source)
+    person=APP.memory.current(source);APP.request.followup_context=bool(continuation)
     try:result = voice_command(command,source,False)
     finally:
-        APP.memory.end_voice();APP.request.captured_at=None
+        APP.memory.end_voice();APP.request.captured_at=None;APP.request.followup_context=False
     answered=time.monotonic()
     if not result['accepted']: return result | {'transcript':text}
     SESSIONS.update(source,phase='speaking',last_answer=result['answer'],answered_at=time.time())
-    if not result.get('silent'):result.update(audio_response(result['answer'],source,ticket))
+    if not result.get('silent'):
+        grant=FOLLOWUP.prepare(source,person)
+        result.update(audio_response(result['answer'],source,ticket,grant))
     SESSIONS.update(source,phase='listening',recognition_result='understood',
         response_seconds=round(time.monotonic()-started,3),timing={
             'recognition':round(recognized-started,3),'speaker_match':round(identified-recognized,3),
@@ -276,6 +298,8 @@ class Handler(BaseHTTPRequestHandler):
                 and self.headers.get('Host') in ('127.0.0.1:8765', 'localhost:8765'))
 
     def authorized(self):
+        if self.path.startswith('/api/companion/'):
+            return self.trusted_local() and not self.headers.get('Origin') and self.headers.get('X-Andrew-Companion')=='1' and hmac.compare_digest(self.headers.get('Authorization',''),'Bearer '+COMPANION.token)
         if self.trusted_local():
             origin = self.headers.get('Origin')
             if origin and origin not in ('http://127.0.0.1:8765', 'http://localhost:8765'):
@@ -290,6 +314,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, (ROOT / 'app.html').read_bytes(), 'text/html; charset=utf-8')
         if not self.authorized():
             return self.send(401, {'error': 'Authentication required.'})
+        if self.path.startswith('/api/companion/poll?'):
+            from urllib.parse import parse_qs
+            session=parse_qs(urlparse(self.path).query).get('session',[''])[0]
+            try:return self.send(200,COMPANION.poll(session))
+            except ValueError as exc:return self.send(400,{'error':str(exc)})
         if self.path=='/assets/andrew.png':
             return self.send(200,(ROOT/'assets/andrew.png').read_bytes(),'image/png')
         if self.path in ('/assets/upgrade.js','/assets/upgrade.css'):
@@ -303,10 +332,10 @@ class Handler(BaseHTTPRequestHandler):
             except queue.Empty:return self.send(200,{})
         if self.path == '/api/status':
             return self.send(200, APP.status() | {'pc_listening': APP.get('pc_listening'),
-                'pc_voice': PC_VOICE.status(), 'voice_sessions':SESSIONS.snapshot(),
+                'pc_voice': PC_VOICE.status(), 'voice_sessions':SESSIONS.snapshot(),'followup':FOLLOWUP.status(),'followup_enabled':APP.get('followup_enabled'),
                 'speech_engine':dict(ENGINE.status)|{'expressive_ready':bool(ENGINE.nano and ENGINE.nano.ready.is_set())},'pi_voice':dict(PI_HEALTH),
                 'satellite':dict(SATELLITE.status),
-                'pc_task':APP.pc_agent.status(),
+                'pc_task':APP.pc_agent.status(),'browser_companion':COMPANION.status(),
                 'improvements':IMPROVEMENTS.items(),
                 'camera':APP.camera.status(),
                 'listening':{s:{'snooze_until':APP.get(s+'_snooze_until'),
@@ -336,11 +365,13 @@ class Handler(BaseHTTPRequestHandler):
                 while True:
                     item = PI_AUDIO.get_nowait()
                     expiry,audio=item[:2]
-                    if expiry>time.time() and (len(item)<3 or not item[2].is_set()):
-                        result['audio'] = audio
+                    if expiry>time.time() and (len(item)<3 or not item[2] or not item[2].is_set()):
+                        result['audio']=audio
+                        if len(item)>3 and item[3]:result['followup_grant']=item[3]
                         PLAYBACK.record(base64.b64decode(audio),'pi')
                         break
             except queue.Empty: pass
+            result['followup']=FOLLOWUP.view('pi')
             result['speech_control']=INTERRUPT.status('pi')
             result['protocol'] = 2
             result['pause_capture'] = SPEAKING.is_set() or PLAYBACK.is_set()
@@ -387,6 +418,11 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(raw)
             if not isinstance(data, dict):
                 raise ValueError('Expected a JSON object.')
+            if self.path=='/api/companion/hello':return self.send(200,COMPANION.hello(data.get('version'),data.get('browser')))
+            if self.path=='/api/companion/result':return self.send(200,{'ok':COMPANION.result(data.get('session'),data.get('message',{}))})
+            if self.path=='/api/companion/ask':
+                if data.get('session') not in COMPANION.clients:raise ValueError('Reconnect the companion first.')
+                return self.send(200,{'answer':APP.command(data.get('request',''),'pc')})
             if self.path in ('/api/browser-command','/api/browser-voice') and self.trusted_local():
                 text=data.get('text','')
                 if self.path=='/api/browser-voice':
@@ -404,6 +440,9 @@ class Handler(BaseHTTPRequestHandler):
                 result={'transcript':text,'answer':answer,'volume':APP.get('browser_volume')}
                 if data.get('speak') is True:result['audio']=base64.b64encode(voice_wav(answer)).decode()
                 return self.send(200,result)
+            if self.path=='/api/followup/close' and self.trusted_local():
+                for source in ('pc','pi'):FOLLOWUP.close(source)
+                return self.send(200,{'answer':'Follow-up listening closed.'})
             if self.path == '/api/speech-control':
                 source=data.get('source','pc') if self.trusted_local() else 'pi'
                 return self.send(200,{'answer':speech_control(source,data.get('action')),'silent':True})
@@ -412,7 +451,10 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/api/voice':
                 pcm = base64.b64decode(data.get('pcm',''),validate=True)
                 return self.send(200,handle_audio(pcm,'pc' if self.trusted_local() else 'pi',
-                    False,time.time()-min(30,max(0,float(data.get('age',0)))),data.get('wake_detected') is True))
+                    False,time.time()-min(30,max(0,float(data.get('age',0)))),data.get('wake_detected') is True,data.get('followup')))
+            if self.path=='/api/followup/arm':
+                source='pc' if self.trusted_local() else 'pi'
+                return self.send(200,{'armed':FOLLOWUP.arm(source,data.get('grant')), 'followup':FOLLOWUP.view(source)})
             if self.path == '/api/relay-health' and not self.trusted_local():
                 PI_HEALTH.update({k:data[k] for k in ('device','speaker','peak','phase','error','protocol','version','outputs','inputs','wakes','display','camera','wake_phrase','background_guard','empty_wakes','rejected_wakes','responses','playback_started_at','playback_finished_at','playback_state') if k in data},
                                  seen=time.time(),ip=self.client_address[0])
@@ -477,7 +519,10 @@ class Handler(BaseHTTPRequestHandler):
                 ticket=INTERRUPT.new_request(source) if data.get('text','').lower().strip() not in ('shut up','stop talking','pause speaking','be quiet','continue','keep going','resume speaking') else INTERRUPT.ticket(source)
                 answer = APP.command(data.get('text', ''), source)
                 if data.get('speak') is True and not getattr(APP.request,'speech_silent',False) and not ticket.is_set():
-                    if source == 'pc': speak(answer)
+                    if source=='pc':
+                        grant=FOLLOWUP.prepare('pc',APP.memory.current('pc'))
+                        if APP.get('pc_speech'):queue_speech(answer,followup=grant)
+                        elif grant:FOLLOWUP.arm('pc',grant)
                     else: PI_AUDIO.put((time.time()+60,base64.b64encode(voice_wav(answer)).decode()),timeout=10)
                 return self.send(200, {'answer': answer})
             if self.path == '/api/photo':
@@ -508,7 +553,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, {'ok': True})
             if self.path == '/api/settings' and self.trusted_local():
                 for key in data:
-                    if key not in ('ha_url', 'ha_token', 'pc_speech', 'pc_listening', 'pc_input', 'pc_output', 'pi_output', 'pi_input', 'pi_listening', 'local_model', 'openai_model', 'claude_model','grok_model','pc_volume','pi_volume','voice','pc_wake_mode','pi_wake_mode','memory_auto','recognition','voice_speed'):
+                    if key not in ('ha_url', 'ha_token', 'pc_speech', 'pc_listening', 'pc_input', 'pc_output', 'pi_output', 'pi_input', 'pi_listening', 'local_model', 'openai_model', 'claude_model','grok_model','pc_volume','pi_volume','voice','pc_wake_mode','pi_wake_mode','memory_auto','recognition','voice_speed','followup_enabled','followup_seconds'):
                         raise ValueError('Unsupported setting.')
                 if 'ha_url' in data and data['ha_url']:
                     parsed = urlparse(data['ha_url'])
@@ -530,6 +575,10 @@ class Handler(BaseHTTPRequestHandler):
                         if value not in ('parakeet','whisper'):raise ValueError('Choose Parakeet or Whisper.')
                     elif key=='voice_speed':
                         if type(value) not in (int,float) or not .8<=value<=1.3:raise ValueError('Voice speed must be between 0.8 and 1.3.')
+                    elif key=='followup_seconds':
+                        if type(value)!=int or not 3<=value<=20:raise ValueError('Choose a follow-up window from 3 to 20 seconds.')
+                    elif key=='followup_enabled':
+                        if type(value)!=bool:raise ValueError('Enable or disable follow-up listening.')
                     elif key in ('pc_wake_mode','pi_wake_mode'):
                         if value not in ('adaptive','strict'): raise ValueError('Choose adaptive or strict wake detection.')
                     elif key in ('pc_speech', 'pc_listening','pi_listening','memory_auto'):

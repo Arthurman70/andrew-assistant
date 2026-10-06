@@ -147,6 +147,7 @@ def poll():
                 STATE['error']=''
             camera.configure(result.get('camera_control',{}))
             CONFIG['name']=result.get('name','Andrew')
+            CONFIG['followup']=result.get('followup',{})
             control=result.get('speech_control',{})
             if control.get('revision',0)>SPEECH_STATE['revision']:
                 SPEECH_STATE['revision']=control['revision']
@@ -163,7 +164,7 @@ def poll():
             STATE['outputs']=[{'id':f'plughw:{c[1]},{c[3]}','name':c[2]} for c in devices('aplay')]
             STATE['inputs']=[{'id':f'plughw:{c[1]},{c[3]}','name':c[2]} for c in devices('arecord')]
             if result.get('audio'):
-                ANNOUNCEMENTS.put(result['audio'],timeout=10)
+                ANNOUNCEMENTS.put((result['audio'],result.get('followup_grant')),timeout=10)
             if result.get('job'):
                 job=result['job']
                 if job.get('kind') in ('photo','video'):
@@ -189,15 +190,19 @@ def poll():
 
 def worker():
     while True:
-        pcm,captured_at=REQUESTS.get()
+        pcm,captured_at,*metadata=REQUESTS.get()
+        grant=metadata[0] if metadata else None
         if snoozed() or not CONFIG.get('listening',True):
             REQUEST_BUSY.clear();REQUESTS.task_done();continue
         REQUEST_BUSY.set(); BUSY.set(); STATE['phase']='recognizing'
         try:
-            result=api('/api/voice',{'pcm':base64.b64encode(pcm).decode(),'age':time.monotonic()-captured_at,'wake_detected':True})
+            result=api('/api/voice',{'pcm':base64.b64encode(pcm).decode(),'age':time.monotonic()-captured_at,'wake_detected':not bool(grant),**({'followup':grant} if grant else {})})
             STATE['error']=''
             if result.get('audio'):
                 play(result['audio']);STATE['responses']=STATE.get('responses',0)+1
+                if result.get('followup_grant'):
+                    opened=api('/api/followup/arm',{'grant':result['followup_grant']})
+                    CONFIG['followup']=opened.get('followup',{})
             if result.get('accepted') and result.get('answer'):
                 print('Voice request recognized and answered through this satellite.',flush=True)
         except Exception as exc:
@@ -228,16 +233,20 @@ def capture():
                 capture.reset();continue
             samples=array('h',frame)
             STATE['peak']=max(abs(v) for v in samples)
+            window=CONFIG.get('followup',{})
+            grant=window.get('grant')
+            if window.get('active') and grant:capture.offer_followup(grant,window.get('remaining',0))
+            elif not capture.active:capture.close_followup()
             was_active=capture.active
             media=STATE.get('display',{}).get('mode') in ('browser','video')
             request=capture.feed(frame,CONFIG.get('name','Andrew'),CONFIG.get('wake_mode','adaptive'),media)
             STATE.update(wake_phrase=wake_phrase(CONFIG.get('name','Andrew')),background_guard=capture.cautious,
                          empty_wakes=capture.empty_wakes,rejected_wakes=capture.rejected_wakes)
-            if not was_active and capture.active: STATE['wakes']+=1
+            if not was_active and capture.active and capture.activation=='wake':STATE['wakes']+=1
             if not BUSY.is_set(): STATE['phase']=capture.phase
             if request is not None:
                 REQUEST_BUSY.set();STATE['phase']='recognizing'
-                REQUESTS.put((request,time.monotonic()))
+                REQUESTS.put((request,time.monotonic(),capture.last_grant))
     finally:
         process.terminate()
         try: process.wait(timeout=2)
@@ -247,7 +256,10 @@ def capture():
 def main():
     def announce():
         while True:
-            try: play(ANNOUNCEMENTS.get())
+            try:
+                item=ANNOUNCEMENTS.get();audio,grant=item if isinstance(item,tuple) else (item,None)
+                play(audio)
+                if grant:CONFIG['followup']=api('/api/followup/arm',{'grant':grant}).get('followup',{})
             except Exception as exc: STATE['error']='Speaker playback: '+str(exc)[:120]
     threading.Thread(target=announce,daemon=True).start()
     threading.Thread(target=poll,daemon=True).start()

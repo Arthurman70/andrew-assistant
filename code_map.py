@@ -14,6 +14,9 @@ ROLES={
  'pc_control.py':'observed Windows app controls, native and browser launches',
  'update_merge.py':'preserving local/self-improved code across official package upgrades',
  'reading.py':'task-sized reading limits, speech chunks and WAV assembly',
+ 'browser_companion.py':'authenticated native browser RPC, connection status and task routing',
+ 'companion_native.py':'framed native messaging, origin check and loopback relay',
+ 'followup.py':'short source-bound conversation leases after reply playback',
  'core.py':'SQLite settings/schema, command routing, due scheduler, provider dispatch',
  'feature_timers.py':'timer/alarm naming, selection, edits, pause, snooze, recurrence commands',
  'feature_alarm_recurrence.py':'weekly calendar and alarm occurrence ticks',
@@ -35,8 +38,8 @@ ROLES={
  'providers.py':'account/model discovery and selection',
  'code_map.py':'cached function/dependency map and focused context',
 }
-CODE_EXT={'.py','.html','.js','.css','.ps1','.sh','.cmd','.service','.java','.gradle','.xml','.md'}
-DIRECTORIES={'assets','pi','web','installers','android','tests'}
+CODE_EXT={'.py','.html','.js','.css','.ps1','.sh','.cmd','.service','.java','.gradle','.xml','.md','.cs','.cjs'}
+DIRECTORIES={'assets','pi','web','installers','android','tests','companion'}
 
 
 def source_name(name):
@@ -48,7 +51,7 @@ def source_name(name):
     if any(p in {'data','runtime','downloads','build','private','__pycache__'} for p in path.parts):return False
     if not re.fullmatch(r'[A-Za-z0-9_ /().-]+',name):return False
     return (path.suffix.lower() in CODE_EXT or name in
-            {'requirements.txt','wake_tuning.json','web/manifest.webmanifest','source_manifest.json'})
+            {'requirements.txt','wake_tuning.json','web/manifest.webmanifest','source_manifest.json','companion/manifest.json'})
 
 
 def inventory(root, previous=None):

@@ -18,7 +18,7 @@ DEFAULTS = {'name': 'Andrew', 'provider': 'grok', 'grok_model':'grok-4.7-build-f
             'openai_model': '', 'claude_model': 'haiku', 'ha_url': '', 'ha_token': '',
             'pc_speech': True, 'pc_listening': True, 'pc_input': 'auto', 'pc_output': 'auto',
             'pi_output': 'auto', 'pi_input':'auto', 'pi_listening':True, 'camera_mode': 'on_request',
-            'pc_volume':80,'pi_volume':80,'browser_volume':80,'browser_listening':True,'voice':'af_heart','voice_speed':1.0,'recognition':'parakeet','memory_auto':True,
+            'pc_volume':80,'pi_volume':80,'browser_volume':80,'browser_listening':True,'voice':'af_heart','voice_speed':1.0,'recognition':'parakeet','memory_auto':True,'followup_enabled':True,'followup_seconds':12,
             'pc_snooze_until':0,'pi_snooze_until':0,'pc_wake_mode':'adaptive','pi_wake_mode':'adaptive'}
 
 
