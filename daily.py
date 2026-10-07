@@ -9,7 +9,10 @@ import time
 from urllib.parse import urlencode
 
 class Daily:
-    def __init__(self,app):self.app=app;self.stopwatches={}
+    def __init__(self,app):
+        self.app=app;self.stopwatches={}
+        from weather import Weather
+        self.forecast=Weather(app)
     def lists(self):return self.app.get('lists') or {}
     def list_change(self,name,item,remove=False):
         name=name.strip().lower()[:40] or 'shopping';item=item.strip()[:180]
@@ -42,14 +45,7 @@ class Daily:
         self.app.timer(message[:80],(target-dt.datetime.now()).total_seconds(),'reminder')
         return 'I will remind you to '+message+' '+target.strftime('on %A at %I:%M %p')+'.'
     def weather(self,city=None):
-        from core import request_json
-        city=city or self.app.get('weather_city')
-        if not city:return 'Tell me a city, such as “weather in Boston”.'
-        places=request_json('https://geocoding-api.open-meteo.com/v1/search?'+urlencode({'name':city,'count':1,'language':'en'}),timeout=10).get('results',[])
-        if not places:return 'I could not find that city. Try the city and state.'
-        p=places[0];self.app.set('weather_city',city)
-        result=request_json('https://api.open-meteo.com/v1/forecast?'+urlencode({'latitude':p['latitude'],'longitude':p['longitude'],'current':'temperature_2m,apparent_temperature,precipitation','temperature_unit':'fahrenheit','timezone':'auto'}),timeout=10)['current']
-        return f'In {p["name"]}, it is {round(result["temperature_2m"])} degrees Fahrenheit and feels like {round(result["apparent_temperature"])}. Current precipitation is {result["precipitation"]} millimeters. Weather from Open-Meteo.'
+        return self.forecast.request(city,source=getattr(self.app.request,'source','pc'))
     def news(self):
         import urllib.request,xml.etree.ElementTree as ET
         with urllib.request.urlopen('https://feeds.bbci.co.uk/news/world/rss.xml',timeout=10) as r:body=r.read(500000)
@@ -68,7 +64,7 @@ class Daily:
         try:return f'The answer is {visit(ast.parse(expression,mode="eval").body):g}.'
         except (SyntaxError,ZeroDivisionError,OverflowError):raise ValueError('I could not calculate that expression.')
     def snapshot(self):
-        return {'lists':self.lists(),'routines':self.app.get('routines') or {},'weather_city':self.app.get('weather_city') or ''}
+        return {'lists':self.lists(),'routines':self.app.get('routines') or {},'weather_city':self.app.get('weather_city') or '','weather':self.forecast.state()}
     def route(self,text,source):
         low=text.lower()
         m=re.fullmatch(r'(?:add|put) (.+?) (?:to|on) (?:my |the )?(shopping|grocery|to do|todo|[\w -]{1,30}) list',text,re.I)
@@ -99,8 +95,8 @@ class Daily:
             elapsed=time.monotonic()-self.stopwatches[source]
             if low=='stop stopwatch':self.stopwatches.pop(source)
             return f'{int(elapsed//60)} minutes and {int(elapsed%60)} seconds.'
-        m=re.fullmatch(r'(?:what is |what\'s )?(?:the )?weather(?: like)?(?: in (.+))?',text,re.I)
-        if m:return self.weather(m[1])
+        forecast=self.forecast.route(text,source)
+        if forecast is not None:return forecast
         if low in ('news','read the news','headlines','world news'):return self.news()
         if low in ('daily briefing','good morning'):
             return dt.datetime.now().strftime('Good morning. It is %A, %B %d. ')+self.route('my reminders',source)+' '+self.weather()

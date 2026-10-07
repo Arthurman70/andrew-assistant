@@ -7,6 +7,8 @@ from pathlib import Path, PurePosixPath
 import re
 
 ROLES={
+ 'weather.py':'cached real daily/hourly forecasts, natural date ranges, timezone selection and weather follow-ups',
+ 'assets/weather.js':'responsive weather cards, high/low display and hourly forecast selection',
  'bambu.py':'Bambu Studio discovery, projects, profile metadata, local slicing jobs and printer task routing',
  'app_commands.py':'fast installed app launching and narrowly scoped speech aliases',
  'conversation_memory.py':'per-person addressed chat archive and quiet 10000-word compaction',

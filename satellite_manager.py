@@ -23,6 +23,7 @@ SOURCES=[('pi/agent.py','agent.py'),('pi/activate-agent.sh','activate-agent.sh')
          ('voice_tuning.py','voice_tuning.py'),('wake_tuning.json','wake_tuning.json'),
          ('interruption.py','interruption.py'),
          ('assets/upgrade.js','assets/upgrade.js'),('assets/upgrade.css','assets/upgrade.css'),
+         ('assets/weather.js','assets/weather.js'),
          ('assets/voice_offline.wav','voice_offline.wav')]
 
 def deployment_version():

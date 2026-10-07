@@ -18,6 +18,12 @@ Rename with **“Hey Andrew, I’ll call you Charlie”**, **“call yourself Al
 
 Adaptive listening is slightly more tolerant in a quiet room. TV/media and quiet mode retain stronger foreground checks. Self-improvement can adjust `wake_tuning.json` within validated bounds; capture code can also be improved while preserving wake-only transcription and the complete wake phrase.
 
+## Weather
+
+Ask **“weather in Boston for the next three days”**, **“weather for the next week”**, or **“hourly weather for tomorrow”**. Andrew displays current conditions, daily highs and lows, precipitation chances, and hourly temperatures, feels-like temperatures and wind. Forecast dates and hours use the requested location's timezone. Forecasts use [Open-Meteo](https://open-meteo.com/) without an API key; the requested city or ZIP code is sent to its geocoding service.
+
+Select a daily card to see that day's hourly readings, or use Daily/Hourly tabs and the day picker. The Weather form also lets you change the location, period and Fahrenheit/Celsius units. After a weather reply, a follow-up such as **“the next week”**, **“hour by hour”**, or **“in Celsius”** keeps the same location and relevant period. Lookups are cached for ten minutes for fast follow-ups. Daily periods support up to 16 days; explicit hour ranges support up to 360 hours. The AI command catalog includes `weather.forecast` with city, period and detail arguments.
+
 ## Interruption
 
 During a reply, say **“shut up”**, **“stop talking”**, or **“be quiet”**. Say **“continue”** within two minutes to resume remaining speech. Quiet, Continue, and Stop reply buttons are available. A new request replaces a paused answer; resuming speech does not repeat actions. Detection uses local keywords and a foreground-volume check; room acoustics can still affect it.

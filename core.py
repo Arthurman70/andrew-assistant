@@ -394,6 +394,8 @@ class Andrew:
             return self.pc_agent.start(text,source)
         bambu_answer=self.bambu.route(text,source)
         if bambu_answer is not None:return bambu_answer
+        weather_answer=self.daily.forecast.route(text,source)
+        if weather_answer is not None:return weather_answer
         from app_commands import route as app_route
         app_answer=app_route(self,text,source)
         if app_answer is not None:return app_answer

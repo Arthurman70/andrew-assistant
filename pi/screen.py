@@ -47,7 +47,7 @@ class Screen(BaseHTTPRequestHandler):
             return self.reply(200, (BASE / 'screen.html').read_bytes(), 'text/html; charset=utf-8')
         if self.path == '/api/status':
             return self.proxy(self.path)
-        if self.path in ('/assets/upgrade.js','/assets/upgrade.css'):
+        if self.path in ('/assets/upgrade.js','/assets/upgrade.css','/assets/weather.js'):
             return self.proxy(self.path)
         if self.path.split('?')[0]=='/api/camera-frame':
             return self.proxy(self.path)

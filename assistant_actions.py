@@ -27,6 +27,7 @@ COMMANDS={
  'memory.compact':{},
  'profile.identify':{'name':'name explicitly given by the user'},
  'weather':{'city':'city, or empty for previous city'},
+ 'weather.forecast':{'city':'city and optional state/country, or empty for previous city','period':'today / tomorrow / next three days / next week / next 6 hours / next Friday','detail':'daily or hourly'},
  'news':{},
  'routine.run':{'name':'existing routine name'},
  'routine.save':{'name':'short routine name','commands':'one to six local timer, volume, lights or thermostat commands separated by semicolons'},
@@ -66,6 +67,7 @@ def system_prompt(app,provider,source):
       ' Speak as the assistant, warmly and concisely. Give useful direct answers without canned introductions. '
       'For ordinary voice questions, answer in one or two short sentences, usually under 45 words. '
       'Read as much relevant source text as the job requires. Give longer answers and full readings when requested or necessary; the short-answer preference must not cut off a requested passage. '
+      'Weather uses weather.forecast: preserve the requested city, forecast period and daily/hourly detail. It displays real forecast data with highs and lows; do not invent weather values. Use the recent weather request to resolve follow-ups such as next week or hour by hour. '
       'You control this app ONLY by returning commands from the catalog. Never claim a device action was completed: '
       'the app executes and supplies the actual result. No shell, built-in tools, arbitrary code, or invented commands. '
       'Return ONLY one JSON object: {"reply":"brief spoken answer or empty when executing",'
@@ -178,6 +180,7 @@ class Actions:
         if name=='memory.compact':return app.memory.conversation.compact(app.memory.current(source))
         if name=='memory.read':return app.memory.describe(app.memory.current(source))
         if name=='weather':return app.daily.weather(a['city'])
+        if name=='weather.forecast':return app.daily.forecast.request(a['city'],a['period'],a['detail'],source)
         if name=='news':return app.daily.news()
         if name=='routine.run':return app.daily.route('run '+a['name'],source) or 'That routine does not exist.'
         if name=='routine.save':return app.daily.route('create routine '+a['name']+': '+a['commands'],source) or 'Use a short name for the routine.'

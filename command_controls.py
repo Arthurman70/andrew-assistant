@@ -11,6 +11,7 @@ import time
 PROVIDERS = r'(?:grok|grock|claude|clawed|openai|open ai|chatgpt|chat gpt|local)'
 MODEL_NAMES = r'(?:haiku|sonnet|opus)'
 PAGES = {
+    'weather': ('home','weatherPanel','Weather'), 'forecast': ('home','weatherPanel','Weather'), 'weather forecast': ('home','weatherPanel','Weather'),
     '3d printing': ('connections','bambuPanel','Bambu Studio'), 'printer controls': ('connections','bambuPanel','Bambu Studio'),
     'home': ('home', '', 'Home'), 'your face': ('home', '', 'Home'),
     'settings': ('settings', '', 'Settings'),

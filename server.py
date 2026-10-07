@@ -322,7 +322,7 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:return self.send(400,{'error':str(exc)})
         if self.path=='/assets/andrew.png':
             return self.send(200,(ROOT/'assets/andrew.png').read_bytes(),'image/png')
-        if self.path in ('/assets/upgrade.js','/assets/upgrade.css'):
+        if self.path in ('/assets/upgrade.js','/assets/upgrade.css','/assets/weather.js'):
             path=ROOT/'assets'/self.path.rsplit('/',1)[1]
             return self.send(200,path.read_bytes(),'text/javascript; charset=utf-8' if path.suffix=='.js' else 'text/css; charset=utf-8')
         if self.path=='/api/browser-notifications' and self.trusted_local():
@@ -446,6 +446,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200,{'answer':'Follow-up listening closed.'})
             if self.path=='/api/bambu' and self.trusted_local():
                 return self.send(200,APP.bambu.perform(data,'browser' if data.get('source')=='browser' else 'pc'))
+            if self.path=='/api/weather' and self.trusted_local():
+                source='browser' if data.get('source')=='browser' else 'pc'
+                return self.send(200,{'answer':APP.daily.forecast.request(data.get('city'),data.get('period',''),data.get('detail'),source,data.get('units'))})
             if self.path == '/api/speech-control':
                 source=data.get('source','pc') if self.trusted_local() else 'pi'
                 return self.send(200,{'answer':speech_control(source,data.get('action')),'silent':True})
