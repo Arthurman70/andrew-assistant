@@ -8,8 +8,11 @@ import hashlib
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
+import re
 import secrets
+import sqlite3
 import threading
 import time
 import urllib.error
@@ -17,6 +20,8 @@ import urllib.request
 from urllib.parse import urlsplit
 
 ROOT=Path(__file__).resolve().parent
+SESSION_SECONDS=90*24*3600
+SESSION_RENEW_SECONDS=24*3600
 GET_PATHS={'/api/status','/api/providers','/api/providers?refresh=1','/api/devices','/api/models',
            '/api/browser-notifications','/api/photo','/api/camera-frame'}
 POST_PATHS={'/api/command','/api/browser-voice','/api/provider','/api/settings','/api/pi-update',
@@ -43,7 +48,31 @@ class Portal(ThreadingHTTPServer):
     def __init__(self,address,config,mode='public',root=ROOT):
         self.config=config;self.mode=mode;self.root=Path(root)
         self.sessions={};self.preflight={};self.failures={};self.lock=threading.RLock()
+        self.session_db=None
+        if mode=='public':
+            path=Path(config.get('config_path',self.root/'private/config.json')).resolve().parent/'sessions.sqlite3'
+            path.parent.mkdir(parents=True,exist_ok=True)
+            self.session_db=sqlite3.connect(path,check_same_thread=False)
+            if os.name!='nt':path.chmod(0o600)
+            self.session_db.execute('CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, csrf TEXT NOT NULL, until REAL NOT NULL, renew_at REAL NOT NULL, auth_tag TEXT NOT NULL)')
+            self.session_db.execute('DELETE FROM sessions WHERE until<=? OR auth_tag!=?',(time.time(),self.auth_tag()))
+            self.session_db.commit()
+            self.sessions={row[0]:dict(zip(('csrf','until','renew_at','auth_tag'),row[1:])) for row in self.session_db.execute('SELECT id,csrf,until,renew_at,auth_tag FROM sessions')}
         super().__init__(address,Handler)
+    def auth_tag(self):
+        value={k:self.config.get(k) for k in ('email','password','origin')}
+        return hashlib.sha256(json.dumps(value,sort_keys=True).encode()).hexdigest()
+    def save_session(self,id,session):
+        if self.session_db:
+            with self.session_db:self.session_db.execute('INSERT OR REPLACE INTO sessions VALUES (?,?,?,?,?)',(id,session['csrf'],session['until'],session['renew_at'],session['auth_tag']))
+    def delete_session(self,id):
+        self.sessions.pop(id,None)
+        if self.session_db:
+            with self.session_db:self.session_db.execute('DELETE FROM sessions WHERE id=?',(id,))
+    def server_close(self):
+        super().server_close()
+        with self.lock:
+            if self.session_db:self.session_db.close();self.session_db=None
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
@@ -54,6 +83,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('X-Content-Type-Options','nosniff');self.send_header('Referrer-Policy','same-origin')
         self.send_header('Permissions-Policy','microphone=(self), camera=(self), geolocation=()')
         self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'")
+        if not cookie and getattr(self,'session_refresh',None):cookie=self.session_refresh
         if cookie:self.send_header('Set-Cookie',cookie)
         self.end_headers();self.wfile.write(content)
 
@@ -63,10 +93,21 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:return ''
 
     def session(self):
+        token=self.cookie('andrew_session')
+        if not re.fullmatch(r'[A-Za-z0-9_-]{64}',token):return None
+        id=hashlib.sha256(token.encode()).hexdigest();now=time.time()
         with self.server.lock:
-            session=self.server.sessions.get(self.cookie('andrew_session'))
-            if session and session['until']>time.time():return session
+            session=self.server.sessions.get(id)
+            if session and session['until']>now and hmac.compare_digest(session['auth_tag'],self.server.auth_tag()):
+                if now>=session['renew_at']:
+                    session.update(until=now+SESSION_SECONDS,renew_at=now+SESSION_RENEW_SECONDS)
+                    self.server.save_session(id,session)
+                    self.session_refresh=self.session_cookie(token)
+                return session
+            if session:self.server.delete_session(id)
         return None
+    def session_cookie(self,token):
+        return 'andrew_session='+token+'; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age='+str(SESSION_SECONDS)
 
     def body(self,limit=1500000):
         size=int(self.headers.get('Content-Length','0'))
@@ -138,7 +179,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self.csrf(session):return self.reply(403,{'error':'Reload Andrew and try again.'})
             data=self.body()
             if self.path=='/auth/logout':
-                with self.server.lock:self.server.sessions.pop(self.cookie('andrew_session'),None)
+                with self.server.lock:self.server.delete_session(hashlib.sha256(self.cookie('andrew_session').encode()).hexdigest())
                 return self.reply(200,{'ok':True},cookie='andrew_session=; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=0')
             if self.path=='/auth/password':
                 password=data.get('password','')
@@ -148,7 +189,11 @@ class Handler(BaseHTTPRequestHandler):
                 with self.server.lock:
                     self.server.config.update(password=password_hash(password),temporary=False)
                     path=self.server.config['config_path'];Path(path).write_text(json.dumps(self.server.config),encoding='utf-8')
-                    self.server.sessions={self.cookie('andrew_session'):session}
+                    id=hashlib.sha256(self.cookie('andrew_session').encode()).hexdigest()
+                    session['auth_tag']=self.server.auth_tag()
+                    self.server.sessions={id:session}
+                    with self.server.session_db:self.server.session_db.execute('DELETE FROM sessions')
+                    self.server.save_session(id,session)
                 return self.reply(200,{'ok':True})
             if self.server.config.get('temporary'):return self.reply(403,{'error':'Change your temporary password first.'})
             return self.proxy(data)
@@ -173,9 +218,12 @@ class Handler(BaseHTTPRequestHandler):
         key=secrets.token_urlsafe(48)
         with self.server.lock:
             self.server.preflight.pop(token,None);self.server.failures.pop(ip,None)
-            self.server.sessions={k:v for k,v in self.server.sessions.items() if v['until']>time.time()}
-            self.server.sessions[key]={'csrf':secrets.token_urlsafe(32),'until':time.time()+12*3600}
-        self.reply(200,{'ok':True},cookie='andrew_session='+key+'; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200')
+            for id,session in list(self.server.sessions.items()):
+                if session['until']<=time.time():self.server.delete_session(id)
+            id=hashlib.sha256(key.encode()).hexdigest()
+            session={'csrf':secrets.token_urlsafe(32),'until':time.time()+SESSION_SECONDS,'renew_at':time.time()+SESSION_RENEW_SECONDS,'auth_tag':self.server.auth_tag()}
+            self.server.sessions[id]=session;self.server.save_session(id,session)
+        self.reply(200,{'ok':True},cookie=self.session_cookie(key))
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--config',required=True)

@@ -9,7 +9,7 @@ ROOT=Path(__file__).resolve().parents[1]
 def main():
     files=subprocess.check_output(['git','ls-files','-z'],cwd=ROOT).decode().strip('\0').split('\0')
     for file in files:
-        if any(part in ('data','runtime','.venv','downloads','.git') for part in Path(file).parts):raise ValueError('Private file in export: '+file)
+        if any(part in ('data','private','runtime','.venv','downloads','.git') for part in Path(file).parts) or '.sqlite3' in Path(file).name:raise ValueError('Private file in export: '+file)
     def exported(name):
         if name=='package_manifest.json':return (ROOT/name).read_bytes()
         data=subprocess.check_output(['git','show',':'+name],cwd=ROOT)

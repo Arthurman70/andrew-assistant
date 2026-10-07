@@ -1,11 +1,11 @@
 {
   "files": {
     ".gitattributes": "51dd3318f1ce7ab38ebe54b73089722ec2246845c9ceb24f0fe6ff5df787bb3e",
-    ".gitignore": "6d1ef235bc6700e396f7a9ebac903de22c3c8c5df897f37fe0e4e89245844984",
+    ".gitignore": "6611e05586daad335857eab00f4706ce86cf5b25ef18e47fdddac6f2ca25879a",
     "COPYING": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
     "Connect Claude.cmd": "95658d95ca1150ae5db5b2ad1d2119b171ea940da87507caf51bb626daa8188b",
     "Connect Grok.cmd": "924d8b893dca802047fc7720ee3668b9e42287bbe246d617ad26d3a927f78d59",
-    "DEPLOYMENT.md": "47aa55e0d0a3515c8868f82db2da80f68c377f6256dc17557dc7e1a663f3978f",
+    "DEPLOYMENT.md": "de02684ef12b44af4f88525605e0020fd680e695c37ef85fb46231b8007910c0",
     "Enable-RelayFirewall.ps1": "3385a7ce44602e279acb8c42e41712c57ed911cbbed542659cc854ace2476064",
     "Install Andrew.cmd": "515cae7ea80f9ad14045e77a2cfe58858a5dc105928eeecde042660828bc32e7",
     "Install Companion.cmd": "4d3994266aa5e8c430c51e3c22ef9d02578886d9c474aa825e335f1279933b6b",
@@ -72,7 +72,7 @@
     "improvements.py": "61afd29cda92cf4718e11377f0115ffbb064d7899a785e26ff62cec2adad741e",
     "installers/Install-Andrew.ps1": "2c729930ae0d36a980b22cd19153f0bec4d645c05eafd18b504de1936369a517",
     "installers/Start-WebBridge.ps1": "643a816b059f5faeef27b9e7f244345bb2e0a963ff79ffbe3e1630e0215785c3",
-    "installers/build_packages.py": "4e540a4af56ec8a8ddd6af7550370af1234ee35af74e0067c4b929cebbb64212",
+    "installers/build_packages.py": "b2ea569b991301ed93a8bca29155180a0b1dbbe8882967ee71e480a89188f34a",
     "installers/configure_web.py": "29ffe9cd8b0ec3e1574730f1d32df3e5e05a90eebd0cec3bdd268af0f36a6ac2",
     "installers/install-pi.sh": "bf05af4ff4a415e1b3d028b571363aee911661d70a7617d44ed874e1884703fc",
     "installers/install_companion.py": "d5bd8082ef95ee0939c551c851bc46b472b4239edd2e00478062b200eb69a4a7",
@@ -144,7 +144,7 @@
     "tests/test_speech_session.py": "8ac4a8c76a4fff9ac6b49cb2731cb8326d370277141607ff17ff1e35b8befc0c",
     "tests/test_voice_reliability.py": "5deb6a5d0e1f57bf6b27f5c06137d113cd5def8eafef5298ab52f181831c8b03",
     "tests/test_voice_routing.py": "da78efb5a65262b4566cc849ee6afaf9abb8b95521ead7a5bc90dd68e07802ef",
-    "tests/test_web_portal.py": "84d46c3deef7ba02cc73ab1ab0bc3656c5bc1efb25095aaa03f4fb3afa9a594c",
+    "tests/test_web_portal.py": "ca1aeae0f190fd146511011b941e4da88a2daa285fd748b9a1d0e4842d251011",
     "update_merge.py": "5b3045de938df0f8741e5652ef5712f20695e29beaf0b99293f3b4f0122fbd86",
     "voice_routing.py": "4adfedf04941ef330a68988646bb94e638516e9a636ada3349555b986f1388b5",
     "voice_tuning.py": "a417dd348da25a1289af9cfe0745fbdea51a3e3115c60841d0cc870fad03fcc5",
@@ -156,7 +156,7 @@
     "web/password.html": "020fd78cc58db25d9e5d8dd04ff8412926cfbf37a6e99fcd350d767d92a91786",
     "web/sw.js": "531180f1dc2cf26273ca3ecda087c26f28441f63124e670b445c8b248ebaddf0",
     "web/widget.js": "0ee5ccc73d1159143050d85d371427a7a626a06944e9f71c0e1fd698afd16074",
-    "web_portal.py": "ce5516519f44003ab26462f3f3f2f3a73e2eab9a2b1c3d31519065213130ee1e",
+    "web_portal.py": "38a24d0e39b19a94164765cfe4709097b12324c80850e053ee749b69c5be5fd8",
     "web_sync.py": "33b720a67857e6cc5e216e0d27f76c7182ec2c5d52942277256f23c0a5a1f90c"
   }
 }

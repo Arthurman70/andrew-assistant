@@ -23,7 +23,7 @@ The `data/web-setup` folder contains a generated temporary login, restricted tun
 
 ## Use it
 
-Open the HTTPS address, sign in with the generated temporary password, and choose a different password of at least 12 characters. Sessions last up to 12 hours and are revoked on service restart. The app is unavailable while the PC is asleep/offline, but the login page remains available. Talk is explicit push-to-talk; closing/backgrounding the client closes microphone access.
+Open the HTTPS address, sign in with the generated temporary password, and choose a different password of at least 12 characters. Browser sessions last 90 days and renew once a day during authenticated use. They survive gateway restarts and updates in `private/sessions.sqlite3`; keep this file private along with the configuration. Only hashes of session cookies are stored. Signing out revokes that browser's session; changing the password revokes other devices, including across restarts. Changing the configured account or origin also invalidates old sessions. The app is unavailable while the PC is asleep/offline, but the login page remains available. Talk is explicit push-to-talk; closing/backgrounding the client closes microphone access.
 
 Select Install app / Add to Home Screen for a browser app. The floating widget is an authenticated-window launcher; embed `https://YOUR_HOST/widget.js`. The Android APK's Change server button selects your HTTPS origin. Self-signed certificates and plain HTTP are not accepted by the APK.
 

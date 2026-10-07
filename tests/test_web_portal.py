@@ -1,4 +1,5 @@
 import http.client
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -6,7 +7,7 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
-from web_portal import Portal,password_hash,check_password,allowed
+from web_portal import Portal,password_hash,check_password,allowed,SESSION_SECONDS,SESSION_RENEW_SECONDS
 
 class PortalTests(unittest.TestCase):
     @classmethod
@@ -31,7 +32,41 @@ class PortalTests(unittest.TestCase):
                 {'Origin':self.config['origin'],'X-Andrew-CSRF':token,'Cookie':'andrew_login='+token})
         self.assertEqual(status,200)
         cookie=headers['Set-Cookie'].split(';')[0];key=cookie.split('=',1)[1]
-        return {'Cookie':cookie,'Origin':self.config['origin'],'X-Andrew-CSRF':self.server.sessions[key]['csrf']}
+        self.assertIn('Max-Age='+str(SESSION_SECONDS),headers['Set-Cookie'])
+        return {'Cookie':cookie,'Origin':self.config['origin'],'X-Andrew-CSRF':self.server.sessions[hashlib.sha256(key.encode()).hexdigest()]['csrf']}
+    def restart(self):
+        self.server.shutdown();self.server.server_close();self.thread.join()
+        self.server=Portal(('127.0.0.1',0),self.config)
+        self.thread=threading.Thread(target=self.server.serve_forever,daemon=True);self.thread.start()
+    def test_session_survives_restart_without_storing_raw_cookie(self):
+        headers=self.login();raw=headers['Cookie'].split('=',1)[1]
+        rows=self.server.session_db.execute('SELECT id FROM sessions').fetchall()
+        self.assertEqual(rows,[(hashlib.sha256(raw.encode()).hexdigest(),)])
+        self.restart();status,_,page=self.request('/',headers=headers)
+        self.assertEqual(status,200);self.assertIn(headers['X-Andrew-CSRF'].encode(),page)
+    def test_authenticated_use_renews_cookie_and_persistent_expiry_daily(self):
+        headers=self.login();id=hashlib.sha256(headers['Cookie'].split('=',1)[1].encode()).hexdigest()
+        original=self.server.sessions[id]['until']
+        with patch('web_portal.time.time',return_value=original-SESSION_SECONDS+SESSION_RENEW_SECONDS+1):
+            status,cookies,_=self.request('/',headers=headers)
+        self.assertEqual(status,200);self.assertIn('Max-Age='+str(SESSION_SECONDS),cookies['Set-Cookie'])
+        self.assertGreater(self.server.sessions[id]['until'],original)
+        self.restart();self.assertEqual(self.request('/',headers=headers)[0],200)
+    def test_expired_session_is_denied_after_restart(self):
+        headers=self.login();id=hashlib.sha256(headers['Cookie'].split('=',1)[1].encode()).hexdigest()
+        self.server.sessions[id]['until']=0;self.server.save_session(id,self.server.sessions[id])
+        self.restart();self.assertEqual(self.request('/api/status',headers=headers)[0],401)
+    def test_logout_remains_revoked_after_restart(self):
+        headers=self.login();self.request('/auth/logout','POST',{},headers)
+        self.restart();self.assertEqual(self.request('/api/status',headers=headers)[0],401)
+    def test_password_change_keeps_current_browser_and_revokes_other_device_durably(self):
+        first=self.login();second=self.login()
+        self.assertEqual(self.request('/auth/password','POST',{'current':'Long test password 42!','password':'New owner password 88!'},first)[0],200)
+        self.restart();self.assertEqual(self.request('/',headers=first)[0],200)
+        self.assertEqual(self.request('/api/status',headers=second)[0],401)
+    def test_external_password_reset_invalidates_saved_session(self):
+        headers=self.login();self.config['password']=password_hash('Reset owner password 77!')
+        self.restart();self.assertEqual(self.request('/api/status',headers=headers)[0],401)
     def test_anonymous_api_is_denied_before_proxy(self):
         with patch('web_portal.urllib.request.urlopen') as upstream:
             self.assertEqual(self.request('/api/status')[0],401)
