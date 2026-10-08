@@ -47,7 +47,7 @@ class Screen(BaseHTTPRequestHandler):
             return self.reply(200, (BASE / 'screen.html').read_bytes(), 'text/html; charset=utf-8')
         if self.path == '/api/status':
             return self.proxy(self.path)
-        if self.path in ('/assets/upgrade.js','/assets/upgrade.css','/assets/weather.js'):
+        if self.path in ('/assets/upgrade.js','/assets/upgrade.css','/assets/weather.js','/assets/tasks.js'):
             return self.proxy(self.path)
         if self.path.split('?')[0]=='/api/camera-frame':
             return self.proxy(self.path)
@@ -62,9 +62,10 @@ class Screen(BaseHTTPRequestHandler):
             return self.reply(403, {'error': 'Local display only.'})
         try:
             length = int(self.headers.get('Content-Length', 0))
-            if not 1 <= length <= 8000 or self.path not in ('/api/command','/api/speech-control'):
+            if not 1 <= length <= 8000 or self.path not in ('/api/command','/api/speech-control','/api/tasks'):
                 raise ValueError()
             data = json.loads(self.rfile.read(length))
+            if self.path=='/api/tasks':return self.proxy(self.path,{**data,'source':'pi'})
             if self.path=='/api/speech-control':return self.proxy(self.path,{'action':data.get('action'),'source':'pi'})
             return self.proxy('/api/command', {'text': data['text'], 'speak': True})
         except (ValueError, KeyError):

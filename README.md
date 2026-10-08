@@ -12,11 +12,21 @@ Select a connected account in Connections. Install and sign in to the official [
 
 Choose a microphone and speaker in Settings. Say **“Hey Andrew, what time is it?”** or **“Hey Andrew, switch to Grok”**, **“use Claude Sonnet”**, **“what model are you using?”**.
 
+Claude Haiku 5.5 is available in the model picker and by voice: **“use Claude Haiku 5.5”**, **“switch to Haiku five point five”**. Andrew uses the pinned model ID `claude-haiku-5-5` through the existing Claude subscription, with no API-key fallback. Install/update the official Claude Code client to **2.1.293 or later** for this model. Existing model choices stay unchanged until you select a different one.
+
 After a conversation reply finishes, PC/Pi listening stays open for **12 seconds** for one foreground follow-up without another wake phrase. A reply to that follow-up opens the next short window. Questions asked by a completed PC task also open this window. It respects microphone off, snooze, media/background checks and speaker identity; alerts do not start conversations. Settings → Follow-up listening can turn it off; End conversation closes the current window. Browser/mobile Talk remains explicit push-to-talk.
 
 Rename with **“Hey Andrew, I’ll call you Charlie”**, **“call yourself Alex”**, or **“change your name to Alex”**. The reply confirms the new **Hey + name** wake phrase; the name survives restarts. You can also use **Settings → Assistant name → Rename**. “My name is …” identifies the speaker and does not rename the assistant.
 
 Adaptive listening is slightly more tolerant in a quiet room. TV/media and quiet mode retain stronger foreground checks. Self-improvement can adjust `wake_tuning.json` within validated bounds; capture code can also be improved while preserving wake-only transcription and the complete wake phrase.
+
+## Scheduled tasks
+
+Say **“open Chrome in ten minutes”**, **“at 7 pm open Spotify”**, **“schedule a task to read the news tomorrow at 7 am”**, or **“read the news every weekday at 7 am”**. These requests save and execute the actual command through Andrew's normal app and PC tools. Timers, alarms and reminders remain alerts. The host PC's local clock sets the time; the host must stay awake. Overdue queued tasks run when the host is available, and busy PC work is queued instead of discarded.
+
+The Home page's **Scheduled tasks** panel shows each numbered task's command, run time, status and result. Create a task there, change its time, pause/resume, cancel, or choose Run now. Voice equivalents include **“list scheduled tasks”**, **“change task number one to tomorrow at 8 am”**, **“pause task one”** and **“cancel task one”**. Scheduled tasks retain their source device, identified speaker and selected model without changing the current person's model settings.
+
+Schedules survive restarts. Uncertain work interrupted while running is marked **Needs attention** instead of replaying completed actions; review its saved result before choosing Run again. Desktop tasks track their real agent result and show questions or failures instead of claiming success merely because work started. Existing task tools and confirmation rules still apply.
 
 ## Weather
 

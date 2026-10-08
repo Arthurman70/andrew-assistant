@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import re
 import subprocess
 import threading
 import time
@@ -13,13 +14,24 @@ LOGIN_LOCK = threading.Lock()
 LOGIN_PROCESS = None
 AUTH_CACHE={'at':0,'value':None}
 MODELS = [{'id': '', 'label': 'Claude account default'},
-          {'id': 'haiku', 'label': 'Haiku · quicker replies'},
+          {'id': 'claude-haiku-5-5', 'label': 'Haiku 5.5 · quicker replies'},
+          {'id': 'haiku', 'label': 'Haiku · latest alias'},
           {'id': 'sonnet', 'label': 'Sonnet · balanced'},
           {'id': 'opus', 'label': 'Opus · complex work'}]
 
 
 class ClaudeError(ValueError):
     pass
+
+
+def model_id(value):
+    """Map spoken version names to pinned IDs; never silently swap versions."""
+    text=value.lower().strip()
+    for word,digit in {'zero':'0','one':'1','two':'2','three':'3','four':'4','five':'5','six':'6','seven':'7','eight':'8','nine':'9'}.items():
+        text=re.sub(r'\b'+word+r'\b',digit,text)
+    text=re.sub(r'^claude\s+','',text)
+    match=re.fullmatch(r'(haiku|sonnet|opus)\s*(\d+)(?:\s*(?:point|[. -])\s*)(\d+)',text)
+    return 'claude-'+match[1]+'-'+match[2]+'-'+match[3] if match else text
 
 
 def executable():
@@ -95,6 +107,7 @@ def record(kind, detail, model):
 
 
 def chat(system, prompt, model='', timeout=150, images=None, retry=True):
+    model=model_id(model)
     connection = status()
     if not connection['ready']:
         raise ClaudeError(connection['detail'])

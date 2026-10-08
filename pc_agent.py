@@ -8,6 +8,7 @@ import subprocess
 import re
 import threading
 import time
+import secrets
 
 
 SYSTEM='''You are Andrew's PC task planner. Fulfil the user's whole request using the
@@ -118,7 +119,7 @@ class PCAgent:
         self.notify=notify or (lambda answer,source:None)
         self.lock=threading.RLock();self.cancelled=threading.Event()
         self.state={'state':'idle','progress':'Ready for PC tasks.','steps':[]}
-        self.pending={};self.pending_owners={};self.thread=None
+        self.pending={};self.pending_owners={};self.thread=None;self.completed={}
         from task_memory import TaskMemory
         self.memory=TaskMemory(app)
         with app.lock:saved=app.db.execute("SELECT 1 FROM task_checkpoints WHERE status IN ('running','paused','needs_input') LIMIT 1").fetchone()
@@ -126,6 +127,11 @@ class PCAgent:
 
     def status(self):
         with self.lock: return json.loads(json.dumps(self.state))
+
+    def result(self,task_id):
+        with self.lock:
+            result=self.state if self.state.get('task_id')==task_id else self.completed.get(task_id)
+            return json.loads(json.dumps(result)) if result else None
 
     def waiting(self, source):
         with self.lock:
@@ -153,9 +159,11 @@ class PCAgent:
             if resume:
                 context=saved['history']+[{'resume_note':'Inspect fresh controls. Continue unfinished work; do not repeat already successful actions.'}]
                 text=saved['request']
-            provider=saved['provider'] if resume else (provider or self.app.get('provider'))
-            model=saved['model'] if resume else (self.app.get(provider+'_model') if model is None else model)
+            scheduled=getattr(self.app.request,'scheduled_context',False)
+            provider=saved['provider'] if resume else (provider or (getattr(self.app.request,'scheduled_provider',None) if scheduled else None) or self.app.get('provider'))
+            model=saved['model'] if resume else ((getattr(self.app.request,'scheduled_model',None) if scheduled and provider==getattr(self.app.request,'scheduled_provider',None) else self.app.get(provider+'_model')) if model is None else model)
             self.state={'state':'running','progress':'Planning your PC task…','steps':[],
+                        'task_id':secrets.token_hex(8),'scheduled':scheduled,'scheduled_task_id':getattr(self.app.request,'scheduled_task_id',None),
                         'source':source,'person':person,'provider':provider,'model':model or '',
                         'started_at':time.time(),'answer':''}
             self.thread=threading.Thread(target=self.run,args=(text,source,context),daemon=True)
@@ -195,6 +203,7 @@ class PCAgent:
         self.app.request.source=source
         self.app.request.agent_internal=True
         person=self.state.get('person',self.app.memory.current(source));self.app.request.person=person
+        self.app.request.scheduled_context=self.state.get('scheduled',False)
         provider=self.state.get('provider',self.app.get('provider'));model=self.state.get('model',self.app.get(provider+'_model'))
         recipes=self.memory.recipes(person,source,text)
         if person:
@@ -305,5 +314,9 @@ class PCAgent:
                 if status=='needs_input':
                     self.pending[source]=(time.monotonic(),history+[{'question':answer}]);self.pending_owners[source]=person
                 self.state.update(state=status,answer=answer,progress=answer,finished_at=time.time())
+                if self.state.get('task_id'):
+                    self.completed[self.state['task_id']]=dict(self.state)
+                    if len(self.completed)>8:self.completed.pop(next(iter(self.completed)))
             try: self.notify(answer,source)
             except Exception: pass
+            self.app.request.scheduled_context=False

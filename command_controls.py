@@ -29,6 +29,7 @@ PAGES = {
     'self improvement': ('connections', 'improvementList', 'Improve Andrew'),
     'latest improvement': ('connections', 'improvementList', 'Latest improvement'),
     'timers': ('home', 'scheduleBoard', 'Timers'), 'alarms': ('home', 'scheduleBoard', 'Alarms'),
+    'tasks': ('home','taskPanel','Scheduled tasks'), 'scheduled tasks': ('home','taskPanel','Scheduled tasks'),
     'camera page': ('camera', '', 'Camera'), 'camera tab': ('camera', '', 'Camera'),
     'camera settings': ('camera', '', 'Camera'),
     'calls and texts': ('connections', 'communicationsPanel', 'Calls and texts'),
@@ -45,7 +46,7 @@ def model_target(text):
         match = re.fullmatch(r'switch from '+PROVIDERS+r' to (.+)', low)
     if not match:
         match = re.fullmatch(r'(?:use|switch(?: over)? to|change to) (.+)', low)
-        if match and not (re.match(r'^(?:the )?(?:'+PROVIDERS+'|'+MODEL_NAMES+r')\b', match[1]) or match[1].endswith(' model')):
+        if match and not (re.match(r'^(?:the )?(?:'+PROVIDERS+'|'+MODEL_NAMES+r')(?:\b|(?=\d))', match[1]) or match[1].endswith(' model')):
             return None
     if not match: return None
     return re.sub(r'^(?:the )|(?: model)$', '', match[1]).strip()
@@ -142,9 +143,12 @@ class Controls:
             model = re.sub(r'^model\s+', '', match[2]) if match[2] else None
             # Spoken model numbers need the provider prefix for catalog matching.
             if model and provider=='grok' and re.match(r'^\d|^(?:four|five)\b', model): model = 'grok '+model
-        elif re.fullmatch(MODEL_NAMES, target): provider='claude'
+        elif re.match(MODEL_NAMES+r'(?:\b|(?=\d))', target): provider='claude'
         if model in ('default','account default','default model'): model=''
         try:
+            if provider=='claude' and model:
+                from claude_provider import model_id
+                model=model_id(model)
             if provider=='claude' and model and not re.fullmatch(MODEL_NAMES+r'|claude-[\w.:-]+',model):
                 raise ValueError('Choose Haiku, Sonnet, Opus, or an exact Claude model identifier.')
             result = choose(self.app, provider, model)

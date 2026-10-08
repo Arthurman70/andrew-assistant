@@ -81,6 +81,8 @@ class Andrew:
         self.controls=Controls(self)
         from feature_timers import Schedule
         self.schedule=Schedule(self)
+        from scheduled_tasks import Tasks
+        self.tasks=Tasks(self)
         from bambu import Bambu
         self.bambu=Bambu(self)
         self.notify=None
@@ -112,7 +114,7 @@ class Andrew:
                 row['due_display']=dt.datetime.fromtimestamp(row['due']).strftime('%a, %b %d · %I:%M %p')
             events = [dict(r) for r in self.db.execute('SELECT * FROM events ORDER BY id DESC LIMIT 12')]
         return {k: self.get(k) for k in ('name', 'provider', 'local_model', 'openai_model', 'claude_model', 'camera_mode', 'pc_speech')} | {
-            'timers': timers, 'events': events, 'relay_online': time.time() - self.relay_seen < 20,
+            'timers': timers, 'scheduled_tasks':self.tasks.snapshot(), 'task_scheduler':dict(self.tasks.health), 'events': events, 'relay_online': time.time() - self.relay_seen < 20,
             'home_connected': bool(self.get('ha_token')), 'ha_url': self.get('ha_url'),
             'camera_monitoring': False,'memory':self.memory.snapshot(),'daily':self.daily.snapshot(),
             'navigation':self.controls.snapshot(),'games':{s:self.games.snapshot(s) for s in ('pc','pi')},'communications':self.communications.status(),'bambu':self.bambu.status()}
@@ -209,11 +211,12 @@ class Andrew:
         return result.get('response', {}).get('speech', {}).get('plain', {}).get('speech', 'Home Assistant did not return a spoken result.')
 
     def ai(self, prompt, provider=None, model=None, *, purpose='conversation', images=None, response_schema=None, system_override=None):
-        provider = provider or self.get('provider')
+        implicit=provider is None
+        provider = provider or getattr(self.request,'scheduled_provider',None) or self.get('provider')
         coding = purpose == 'improvement'
         raw=purpose!='conversation'
         detailed=needs_detail(prompt)
-        selected_model = self.get(provider+'_model') if model is None else model
+        selected_model = (getattr(self.request,'scheduled_model',None) if implicit and getattr(self.request,'scheduled_provider',None) else self.get(provider+'_model')) if model is None else model
         if not hasattr(self,'memory_ai_lock'):self.memory_ai_lock=threading.Lock()
         lock = self.memory_ai_lock if purpose=='memory' else (self.improvement_ai_lock if coding else self.ai_lock)
         if not lock.acquire(blocking=False):
@@ -392,6 +395,8 @@ class Andrew:
             return 'You\x27re welcome.'
         if low in ('continue the pc task','resume the pc task','continue task','resume task','continue your work','keep working') and self.pc_agent:
             return self.pc_agent.start(text,source)
+        task_answer=self.tasks.route(text,source)
+        if task_answer is not None:return task_answer
         bambu_answer=self.bambu.route(text,source)
         if bambu_answer is not None:return bambu_answer
         weather_answer=self.daily.forecast.route(text,source)

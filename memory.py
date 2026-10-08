@@ -22,6 +22,7 @@ class Memory:
             ''')
 
     def current(self,source):
+        if getattr(self.app.request,'scheduled_context',False):return getattr(self.app.request,'person',None)
         if self.guests.get(source,0)>time.time():return None
         if getattr(self.app.request,'voice_context',False):return getattr(self.app.request,'person',None)
         entry=self.active.get(source)

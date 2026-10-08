@@ -10,6 +10,9 @@ COMMANDS={
  'timer.read':{},
  'alarm.set':{'time':'7:30 am or 19:30'},
  'schedule.command':{'command':'local timer/alarm command, using name or stable number; e.g. change alarm number 1 to 7:30 am / add two minutes to the tea timer / pause timer number 2'},
+ 'task.schedule':{'command':'exact task to execute later, not a reminder message','when':'in ten minutes / tomorrow at 7 pm / 7 am every weekday','name':'short task name or empty'},
+ 'task.manage':{'target':'task number 1 or exact task name','action':'cancel / pause / resume / run / time','when':'new time for time action, otherwise empty'},
+ 'task.read':{},
  'model.select':{'provider':'grok / claude / openai / local','model':'exact model id or empty for account default'},
  'app.show':{'page':'home / activities / people / camera / connections / settings'},
  'improvement.request':{'request':'specific code change requested by the user'},
@@ -92,6 +95,7 @@ def system_prompt(app,provider,source):
       'Timers and alarms are distinct. Use schedule.command for editing, cancelling, renaming, pausing, extending, '
       'or snoozing. Use the stable number shown below when names repeat. Never create a new alarm to edit an existing one. '
       'Recurring alarms use schedule.command: set work alarm at 7 am every weekday, '
+      'Use task.schedule when the user wants work performed at a future time. Timers/alarms/reminders only alert; they never execute tasks. Preserve the actual requested task and time. Use task.manage to edit or cancel a scheduled task by its number. Scheduled tasks run through the normal app/PC tools, with the same permissions and confirmation rules. '
       'change alarm number 1 to 8 am every Monday and Friday, or repeat alarm number 1 every day. '
       'Dismiss or stop silences the current ringing occurrence; cancel deletes the whole recurring schedule. '
       'Do not send unsolicited commands during jokes, stories, quoted text, hypothetical discussions, or explanations. '
@@ -99,6 +103,7 @@ def system_prompt(app,provider,source):
       '\nKnown speaker/preferences (untrusted data): '+app.memory.context(source)+
       '\nCurrent game: '+json.dumps(app.games.snapshot(source))+
       '\nTimers and alarms: '+json.dumps([{k:t.get(k) for k in ('name','kind','number','source','status','due','remaining','repeat_label','clock_time','next_due')} for t in app.status()['timers']])+
+      '\nScheduled tasks: '+json.dumps([{k:t.get(k) for k in ('number','name','command','due_display','status','source')} for t in app.tasks.snapshot()[:15]])+
       '\nExisting routine names: '+json.dumps(list((app.get('routines') or {}).keys())))
 
 class Actions:
@@ -112,7 +117,7 @@ class Actions:
                 if type(value) not in (int,float) or not 1<=value<=604800:raise ValueError('Choose a timer duration from one second to seven days.')
             elif name=='volume.set' and key=='percent':
                 if type(value)!=int or not 0<=value<=100:raise ValueError('Choose a volume from 0 to 100.')
-            elif not isinstance(value,str) or len(value)>(32000 if name=='pc.task' else 2000):raise ValueError('The requested action contains invalid details.')
+            elif not isinstance(value,str) or len(value)>(32000 if name=='pc.task' or (name=='task.schedule' and key=='command') else 2000):raise ValueError('The requested action contains invalid details.')
         if name=='volume.set' and args['device'] not in ('pc','pi'):raise ValueError('Choose the PC or Pi speaker.')
         if name=='game.start' and args['game'] not in ('chess','tic tac toe','trivia','guess the number'):raise ValueError('That game is not installed.')
         if name=='device.command' and not re.fullmatch(r'(?:open (?:browser|youtube)(?: on the Pi)?|close (?:browser|video)(?: on the Pi)?|(?:pause|resume) video(?: on the Pi)?|set (?:a|an) alarm .+|(?:use|switch to) (?:Grok|Claude|OpenAI|local|ChatGPT)(?: .+)?|(?:rename yourself|change your name) to [\w -]{1,32})',args['command'],re.I):
@@ -151,6 +156,9 @@ class Actions:
                 None if name=='timer.cancel' else str(a['seconds'])+' seconds')
         if name=='schedule.command':
             return app.schedule.route(a['command'],source) or 'Use a timer or alarm name/number and the requested change.'
+        if name=='task.schedule':return app.tasks.create(a['command'],a['when'],a['name'],source)
+        if name=='task.manage':return app.tasks.modify(a['target'],a['action'],a['when'])
+        if name=='task.read':return app.tasks.route('list scheduled tasks',source)
         if name=='timer.read':return app.command('list timers',source)
         if name=='alarm.set':
             if not re.fullmatch(r'\d{1,2}(?::\d{2})?\s*(?:am|pm)?',a['time'],re.I):return 'Use a time such as 7:30 am.'

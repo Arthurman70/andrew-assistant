@@ -7,6 +7,8 @@ from pathlib import Path, PurePosixPath
 import re
 
 ROLES={
+ 'scheduled_tasks.py':'persistent timed task execution, calendar/relative scheduling, queue, outcomes and task editing',
+ 'assets/tasks.js':'shared scheduled-task form, status, run-time edits, pause/cancel and results',
  'weather.py':'cached real daily/hourly forecasts, natural date ranges, timezone selection and weather follow-ups',
  'assets/weather.js':'responsive weather cards, high/low display and hourly forecast selection',
  'bambu.py':'Bambu Studio discovery, projects, profile metadata, local slicing jobs and printer task routing',

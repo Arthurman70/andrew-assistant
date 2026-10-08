@@ -72,6 +72,9 @@ def resolve(app, provider=None, model=None):
         entry = next((p for p in catalog(force=True) if p['id']==provider),entry)
     if not entry['ready']: raise ValueError(entry['detail'])
     if model is not None:
+        if provider=='claude':
+            from claude_provider import model_id
+            model=model_id(model)
         if provider == 'local' and model == 'qwen3:4b': model = 'qwen3:4b-instruct'
         def spoken_key(value):
             for word, digit in {'zero':'0','one':'1','two':'2','three':'3','four':'4','five':'5','six':'6','seven':'7','eight':'8','nine':'9'}.items():

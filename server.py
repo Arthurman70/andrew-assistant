@@ -175,6 +175,18 @@ APP.camera=Camera(APP,notify=pc_task_finished)
 APP.notify=pc_task_finished
 APP.bambu.notify=pc_task_finished
 
+def scheduled_task_finished(answer,source):
+    # Timed task results are alerts, not an invitation to transcribe a room.
+    SESSIONS.update(source,last_answer=answer,answered_at=time.time())
+    if source=='browser':
+        try:BROWSER_AUDIO.put_nowait({'answer':answer,'at':time.time()})
+        except queue.Full:pass
+    elif source=='pi' and time.time()-APP.relay_seen<20:
+        PI_AUDIO.put((time.time()+60,base64.b64encode(voice_wav(answer)).decode()),timeout=10)
+    elif APP.get('pc_speech'):speak(answer)
+
+APP.tasks.notify=scheduled_task_finished
+
 def resumed_audio(wav,source):
     if source=='pc':queue_speech(wav)
 
@@ -322,7 +334,7 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:return self.send(400,{'error':str(exc)})
         if self.path=='/assets/andrew.png':
             return self.send(200,(ROOT/'assets/andrew.png').read_bytes(),'image/png')
-        if self.path in ('/assets/upgrade.js','/assets/upgrade.css','/assets/weather.js'):
+        if self.path in ('/assets/upgrade.js','/assets/upgrade.css','/assets/weather.js','/assets/tasks.js'):
             path=ROOT/'assets'/self.path.rsplit('/',1)[1]
             return self.send(200,path.read_bytes(),'text/javascript; charset=utf-8' if path.suffix=='.js' else 'text/css; charset=utf-8')
         if self.path=='/api/browser-notifications' and self.trusted_local():
@@ -449,6 +461,11 @@ class Handler(BaseHTTPRequestHandler):
             if self.path=='/api/weather' and self.trusted_local():
                 source='browser' if data.get('source')=='browser' else 'pc'
                 return self.send(200,{'answer':APP.daily.forecast.request(data.get('city'),data.get('period',''),data.get('detail'),source,data.get('units'))})
+            if self.path=='/api/tasks':
+                source=data.get('source','pc') if self.trusted_local() else 'pi'
+                if data.get('action')=='create':answer=APP.tasks.create(data.get('command'),data.get('when'),data.get('name',''),source)
+                else:answer=APP.tasks.modify(data.get('target'),data.get('action'),data.get('when'))
+                return self.send(200,{'answer':answer})
             if self.path == '/api/speech-control':
                 source=data.get('source','pc') if self.trusted_local() else 'pi'
                 return self.send(200,{'answer':speech_control(source,data.get('action')),'silent':True})
@@ -610,6 +627,7 @@ def main():
     threading.Thread(target=speech_worker, daemon=True).start()
     threading.Thread(target=PC_VOICE.run, daemon=True).start()
     threading.Thread(target=scheduler, daemon=True).start()
+    threading.Thread(target=APP.tasks.run_loop, daemon=True).start()
     threading.Thread(target=SATELLITE.run, daemon=True).start()
     local = ThreadingHTTPServer(('127.0.0.1', 8765), Handler)
     if (ROOT / 'data/server.crt').exists():
