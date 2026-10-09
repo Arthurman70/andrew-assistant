@@ -281,9 +281,11 @@ def source_bundle(selected, request, names, base):
     An incomplete model plan must not hide the scheduler from an alarm change.
     """
     required=[]
+    alarm_sound=bool(re.search(r'\b(?:alarms?|timers?)\b',request,re.I) and re.search(r'\b(?:sounds?|audio|playback|cinematic|chimes?|ringing|ringtones?)\b',request,re.I))
     if (re.search(r'\b(?:timers?|alarms?|countdown|snooze|scheduler)\b',request,re.I) or
             any(n in selected for n in ('feature_timers.py','feature_alarm_recurrence.py'))):
         required += ['feature_timers.py','core.py','feature_alarm_recurrence.py']
+    if alarm_sound:required += ['alarm_audio.py','server.py','speaker_player.py','pi/agent.py','assets/alarms.js']
     if re.search(r'\b(?:wake|pick\s*up|sensitivity|voice detection|voice recognition|microphone|hearing)\b',request,re.I):
         required += ['wake_tuning.json']
     result=[n for n in dict.fromkeys(required+selected) if n in names]
@@ -299,7 +301,7 @@ def source_bundle(selected, request, names, base):
                 dependency=str(module)+'.py'
                 if dependency.startswith('feature_') and dependency in names and dependency not in result:
                     result.append(dependency)
-    if len(result)>6:
+    if len(result)>(11 if alarm_sound else 6):
         raise ValueError('The change needs too much source at once. Ask for one specific improvement.')
     return result
 
@@ -383,6 +385,7 @@ class ImprovementManager:
                 'Output {"paths":["core.py::Andrew.command"]}. Application code map: '+json.dumps(compact(index,request))+
                 '. feature_timers.py owns timer/alarm creation, names, stable numbers, selection, edits, pause/resume and snooze. '
                 'core.py owns the due scheduler tick and general command routing; timer/alarm intent changes need feature_timers.py. '
+                'alarm_audio.py owns private cinematic WAV selection, repeating same-device alarm clips and silence/snooze cancellation. server.py dispatches PC alarms through speech_worker and the Pi relay; speaker_player.py handles actual cancellable output. These audio dependencies are automatically supplied for alarm sound requests. '
                 'command_controls.py owns model selection phrases, Andrew page navigation and ordered local command chains. '
                 'local_commands.py is app/media intents, NOT the alarm scheduler; speech_engine.py is speech, '
                 'providers.py is model selection, app.html is PC display, pi/screen.html is Pi display. '

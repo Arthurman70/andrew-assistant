@@ -81,6 +81,8 @@ class Andrew:
         self.controls=Controls(self)
         from feature_timers import Schedule
         self.schedule=Schedule(self)
+        from alarm_audio import AlarmAudio
+        self.alarm_audio=AlarmAudio(self)
         from scheduled_tasks import Tasks
         self.tasks=Tasks(self)
         from bambu import Bambu
@@ -114,7 +116,7 @@ class Andrew:
                 row['due_display']=dt.datetime.fromtimestamp(row['due']).strftime('%a, %b %d · %I:%M %p')
             events = [dict(r) for r in self.db.execute('SELECT * FROM events ORDER BY id DESC LIMIT 12')]
         return {k: self.get(k) for k in ('name', 'provider', 'local_model', 'openai_model', 'claude_model', 'camera_mode', 'pc_speech')} | {
-            'timers': timers, 'scheduled_tasks':self.tasks.snapshot(), 'task_scheduler':dict(self.tasks.health), 'events': events, 'relay_online': time.time() - self.relay_seen < 20,
+            'timers': timers, 'alarm_audio':self.alarm_audio.status(), 'scheduled_tasks':self.tasks.snapshot(), 'task_scheduler':dict(self.tasks.health), 'events': events, 'relay_online': time.time() - self.relay_seen < 20,
             'home_connected': bool(self.get('ha_token')), 'ha_url': self.get('ha_url'),
             'camera_monitoring': False,'memory':self.memory.snapshot(),'daily':self.daily.snapshot(),
             'navigation':self.controls.snapshot(),'games':{s:self.games.snapshot(s) for s in ('pc','pi')},'communications':self.communications.status(),'bambu':self.bambu.status()}
@@ -123,9 +125,11 @@ class Andrew:
         now = time.time() if now is None else now
         from feature_alarm_recurrence import tick
         rows=tick(self,now)
+        for row in rows:
+            if row['kind']=='alarm':self.alarm_audio.begin(row)
         messages = [{'text':('Reminder: '+r['name'] if r['kind']=='reminder' else
                              self.schedule.label(r)+' is ringing.' if r['kind']=='alarm' else
-                             self.schedule.label(r)+' is finished.'), 'source':r['source'] or 'pc'} for r in rows]
+                             self.schedule.label(r)+' is finished.'), 'source':r['source'] or 'pc',**({'kind':'alarm','id':r['id']} if r['kind']=='alarm' else {})} for r in rows]
         for message in messages:
             self.event(message['text'])
         return messages

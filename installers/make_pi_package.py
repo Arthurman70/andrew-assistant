@@ -11,7 +11,7 @@ def main():
     names=['pi/agent.py','pi/camera_capture.py','pi/display.py','pi/screen.py','pi/screen.html','pi/install.sh',
            'pi/install-screen.sh','pi/andrew-relay.service','pi/andrew-screen.service','wake_detector.py','wake_capture.py',
            'background_guard.py','voice_tuning.py','wake_tuning.json','audio_utils.py','interruption.py','pi/relay-config.json','data/server.crt',
-           'assets/andrew.png','assets/upgrade.js','assets/upgrade.css','assets/weather.js','assets/tasks.js','assets/voice_offline.wav']
+           'assets/andrew.png','assets/upgrade.js','assets/upgrade.css','assets/weather.js','assets/tasks.js','assets/alarms.js','assets/voice_offline.wav']
     target=ROOT/'data/Andrew-Pi-private-pairing.zip'
     with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as bundle:
         for name in names:

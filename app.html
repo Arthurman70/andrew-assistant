@@ -55,4 +55,4 @@ function renderCamera(c){$('cameraState').textContent=(c.preview_remaining>0?'Pr
 function showCapture(){const row=(state.camera?.captures||[]).find(x=>x.id===$('cameraCapture').value);$('photo').hidden=true;$('cameraVideo').hidden=true;$('cameraVideo').pause();if(!row)return;if(row.kind==='photo'){$('photo').src=row.url;$('photo').hidden=false}else{$('cameraVideo').src=row.url;$('cameraVideo').hidden=false}}
 async function sendCaptureToAI(){try{const r=await api('/api/camera',{action:'analyze',id:$('cameraCapture').value,question:$('cameraQuestion').value||'Describe what you can see.',provider:$('provider').value,model:chosenModel()});toast(r.answer);await refresh()}catch(e){failure(e)}}
 
-</script><script src="/assets/upgrade.js"></script><script src="/assets/weather.js"></script><script src="/assets/tasks.js"></script></body></html>
+</script><script src="/assets/upgrade.js"></script><script src="/assets/weather.js"></script><script src="/assets/tasks.js"></script><script src="/assets/alarms.js"></script></body></html>

@@ -34,6 +34,7 @@ if not TOKEN_PATH.exists():
     TOKEN_PATH.write_text(secrets.token_urlsafe(48), encoding='utf-8')
 TOKEN = TOKEN_PATH.read_text().strip()
 SPEECH = queue.Queue(maxsize=16)
+ALARM_SPEECH=queue.Queue(maxsize=1)
 SPEAKING = threading.Event()
 SPEECH_READY = threading.Event()
 VOICE_GATE = VoiceGate()
@@ -70,7 +71,10 @@ def speech_worker():
     except Exception:pass  # A later playback reconnects automatically.
     SPEECH_READY.set()
     while True:
-        message = SPEECH.get()
+        try:message=ALARM_SPEECH.get_nowait();channel=ALARM_SPEECH
+        except queue.Empty:
+            try:message=SPEECH.get(timeout=.1);channel=SPEECH
+            except queue.Empty:continue
         try:
             if isinstance(message,tuple):
                 message,cancel,*rest=message
@@ -85,14 +89,14 @@ def speech_worker():
                 SPEAKING.set();PLAYBACK.record(wav,'pc')
                 SESSIONS.update('pc',playback_started_at=time.time(),playback_state='playing',error='',
                     output=values['device'],output_fallback=values['fallback'])
-            PLAYER.play(wav,APP.get('pc_output'),APP.get('pc_volume'),started)
+            PLAYER.play(wav,APP.get('pc_output'),APP.get('pc_volume'),started,cancel=cancel)
             if followup and not ticket.is_set() and not INTERRUPT.active('pc'):FOLLOWUP.arm('pc',followup)
             SESSIONS.update('pc',playback_finished_at=time.time(),playback_state='paused' if INTERRUPT.active('pc') else 'finished')
         except Exception as exc:
             SESSIONS.update('pc',playback_state='failed',error='Speaker playback failed. Choose a connected speaker in Audio settings.')
             APP.event('PC speaker needs attention; the answer remains visible.')
         finally:
-            SPEAKING.clear();SPEECH.task_done()
+            SPEAKING.clear();channel.task_done()
 
 
 class ResponseProgress:
@@ -194,6 +198,8 @@ INTERRUPT=SpeechInterruption(PLAYER,resumed_audio)
 
 def speech_control(source,action):
     FOLLOWUP.close(source)
+    if action in ('pause','stop'):APP.alarm_audio.silence(source)
+    elif action=='resume':APP.alarm_audio.resume(source)
     result=INTERRUPT.control(source,action)
     if action in ('pause','stop'):
         PLAYBACK.stop(source)
@@ -283,12 +289,23 @@ def scheduler():
     while True:
         IMPROVEMENTS.notify_completed()
         for message in APP.due():
+            if message.get('kind')=='alarm':continue  # Repeating clips are dispatched independently of TTS.
             if message['source'] == 'pi' and time.time()-APP.relay_seen < 20:
                 try:
                     PI_AUDIO.put((time.time()+30,base64.b64encode(voice_wav(message['text'])).decode()),timeout=10)
                 except queue.Full: speak(message['text'])
             else: speak(message['text'])
         time.sleep(0.5)
+
+def dispatch_alarm(wav,cancel):
+    if PC_VOICE.busy.is_set() or PC_VOICE.status().get('phase')=='listening':return False
+    try:
+        ALARM_SPEECH.put_nowait((wav,cancel,INTERRUPT.ticket('pc'),None))
+        if SPEAKING.is_set():PLAYER.pause()
+        return True
+    except queue.Full:return False
+
+APP.alarm_audio.dispatch=dispatch_alarm
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -334,7 +351,7 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:return self.send(400,{'error':str(exc)})
         if self.path=='/assets/andrew.png':
             return self.send(200,(ROOT/'assets/andrew.png').read_bytes(),'image/png')
-        if self.path in ('/assets/upgrade.js','/assets/upgrade.css','/assets/weather.js','/assets/tasks.js'):
+        if self.path in ('/assets/upgrade.js','/assets/upgrade.css','/assets/weather.js','/assets/tasks.js','/assets/alarms.js'):
             path=ROOT/'assets'/self.path.rsplit('/',1)[1]
             return self.send(200,path.read_bytes(),'text/javascript; charset=utf-8' if path.suffix=='.js' else 'text/css; charset=utf-8')
         if self.path=='/api/browser-notifications' and self.trusted_local():
@@ -343,6 +360,8 @@ class Handler(BaseHTTPRequestHandler):
                 if time.time()-item['at']<120:item['audio']=base64.b64encode(voice_wav(item['answer'])).decode()
                 return self.send(200,item)
             except queue.Empty:return self.send(200,{})
+        if self.path=='/api/alarm-sounds':return self.send(200,{'sounds':APP.alarm_audio.catalog(),'selected':APP.get('alarm_sound') or 'builtin'})
+        if self.path.split('?')[0]=='/api/alarm-sound':return self.send(200,APP.alarm_audio.sound(),'audio/wav')
         if self.path == '/api/status':
             return self.send(200, APP.status() | {'pc_listening': APP.get('pc_listening'),
                 'pc_voice': PC_VOICE.status(), 'voice_sessions':SESSIONS.snapshot(),'followup':FOLLOWUP.status(),'followup_enabled':APP.get('followup_enabled'),
@@ -374,6 +393,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/relay':
             result = APP.job()
             result['camera_control']=APP.camera.control()
+            state=APP.alarm_audio.status();result['alarm_audio']=state['devices']['pi']|{'revision':state['revision']}
+            if result['alarm_audio']['key'] and PI_HEALTH.get('alarm_sound_revision')!=state['revision']:
+                result['alarm_audio']['audio']=base64.b64encode(APP.alarm_audio.sound()).decode()
             try:
                 while True:
                     item = PI_AUDIO.get_nowait()
@@ -448,11 +470,23 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(200,{'transcript':text,'answer':'Speech paused.' if phrase not in ('continue','keep going','resume speaking') else 'Continuing.','speech_action':'resume' if phrase in ('continue','keep going','resume speaking') else 'pause'})
                 if type(data.get('volume')) in (int,float) and 0<=data['volume']<=100:APP.set('browser_volume',data['volume'])
                 APP.request.voice_context=False
+                device=data.get('device_id','');APP.request.browser_device=device if isinstance(device,str) and re.fullmatch(r'[\w-]{8,80}',device) else None
                 answer=APP.command(text,'browser')
                 SESSIONS.update('browser',last_request=text,last_answer=answer,answered_at=time.time())
                 result={'transcript':text,'answer':answer,'volume':APP.get('browser_volume')}
                 if data.get('speak') is True:result['audio']=base64.b64encode(voice_wav(answer)).decode()
                 return self.send(200,result)
+            if self.path=='/api/alarm-sound':
+                return self.send(200,{'answer':APP.alarm_audio.choose(data.get('sound'))})
+            if self.path=='/api/alarm-preview':
+                source=data.get('source','pc') if self.trusted_local() else 'pi';wav=APP.alarm_audio.sound()
+                if source=='browser':return self.send(200,{'answer':'Playing alarm sound on this browser.'})
+                if source=='pi':
+                    if time.time()-APP.relay_seen>20:raise ValueError('The Pi is offline. Reconnect it to preview its alarm sound.')
+                    PI_AUDIO.put((time.time()+10,base64.b64encode(wav).decode()),timeout=2)
+                elif source=='pc':queue_speech(wav)
+                else:raise ValueError('Choose the PC, Pi or browser.')
+                return self.send(200,{'answer':'Playing alarm sound on '+source+'.'})
             if self.path=='/api/followup/close' and self.trusted_local():
                 for source in ('pc','pi'):FOLLOWUP.close(source)
                 return self.send(200,{'answer':'Follow-up listening closed.'})
@@ -479,7 +513,7 @@ class Handler(BaseHTTPRequestHandler):
                 source='pc' if self.trusted_local() else 'pi'
                 return self.send(200,{'armed':FOLLOWUP.arm(source,data.get('grant')), 'followup':FOLLOWUP.view(source)})
             if self.path == '/api/relay-health' and not self.trusted_local():
-                PI_HEALTH.update({k:data[k] for k in ('device','speaker','peak','phase','error','protocol','version','outputs','inputs','wakes','display','camera','wake_phrase','background_guard','empty_wakes','rejected_wakes','responses','playback_started_at','playback_finished_at','playback_state') if k in data},
+                PI_HEALTH.update({k:data[k] for k in ('device','speaker','peak','phase','error','protocol','version','outputs','inputs','wakes','display','camera','wake_phrase','background_guard','empty_wakes','rejected_wakes','responses','playback_started_at','playback_finished_at','playback_state','alarm_sound_revision') if k in data},
                                  seen=time.time(),ip=self.client_address[0])
                 APP.relay_seen = time.time()
                 return self.send(200,{'ok':True})
@@ -627,6 +661,7 @@ def main():
     threading.Thread(target=speech_worker, daemon=True).start()
     threading.Thread(target=PC_VOICE.run, daemon=True).start()
     threading.Thread(target=scheduler, daemon=True).start()
+    threading.Thread(target=APP.alarm_audio.run, daemon=True).start()
     threading.Thread(target=APP.tasks.run_loop, daemon=True).start()
     threading.Thread(target=SATELLITE.run, daemon=True).start()
     local = ThreadingHTTPServer(('127.0.0.1', 8765), Handler)

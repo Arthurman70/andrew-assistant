@@ -39,9 +39,10 @@ class SpeakerPlayer:
         if not responses.get(timeout=10).get('ready'):
             raise RuntimeError('Speaker process could not start.')
 
-    def play(self,wav,device,volume,on_start=lambda **values:None):
+    def play(self,wav,device,volume,on_start=lambda **values:None,cancel=None):
         with self.lock:
-            item={'wav':wav,'frames':0,'interrupted':False}
+            if cancel and cancel.is_set():return
+            item={'wav':wav,'frames':0,'interrupted':False,'cancel':cancel}
             with self.state_lock:self.current=item
             try:
                 self.start()
@@ -49,7 +50,14 @@ class SpeakerPlayer:
                     'device':device or 'auto','volume':volume})+'\n');self.process.stdin.flush()
                 deadline=time.monotonic()+playback_timeout(wav)
                 while True:
-                    message=self.responses.get(timeout=max(.01,deadline-time.monotonic()))
+                    if cancel and cancel.is_set():
+                        item['interrupted']=True;self.close();return
+                    remaining=deadline-time.monotonic()
+                    if remaining<=0:raise RuntimeError('Speaker playback timed out.')
+                    try:message=self.responses.get(timeout=min(.1,remaining) if cancel else remaining)
+                    except queue.Empty:
+                        if cancel:continue
+                        raise
                     if message.get('error'):raise RuntimeError(message['error'])
                     if 'progress' in message:item['frames']=message['progress']
                     if message.get('started'):on_start(device=message['device'],fallback=message['fallback'])
@@ -68,7 +76,7 @@ class SpeakerPlayer:
             item=self.current
             if item:
                 item['interrupted']=True
-                self.paused_audio=remaining_wav(item['wav'],item['frames'])
+                self.paused_audio=None if item.get('cancel') else remaining_wav(item['wav'],item['frames'])
                 self.pause_until=time.monotonic()+120
                 self.close()
 

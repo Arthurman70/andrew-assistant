@@ -1,5 +1,6 @@
 /* Foreground, explicit push-to-talk only. No browser background transcription. */
 window.ANDREW_BROWSER=true;
+window.ANDREW_DEVICE_ID=localStorage.getItem('andrew-device-id')||crypto.randomUUID();localStorage.setItem('andrew-device-id',window.ANDREW_DEVICE_ID);
 (()=>{
 const originalFetch=window.fetch.bind(window);let context,player,buffer,gain,offset=0,started=0,recording=null,installPrompt,generation=0,paused=false;
 let volume=Number(localStorage.getItem('andrew-browser-volume')||80)/100;
@@ -7,10 +8,11 @@ function audio(){context ||= new (window.AudioContext||window.webkitAudioContext
 function stop(keep=true){if(player){offset+=audio().currentTime-started;player.onended=null;try{player.stop()}catch{}player=null}if(!keep){offset=0;buffer=null}document.getElementById('mascot')?.classList.remove('speaking')}
 function play(){if(!buffer||offset>=buffer.duration)return;stop(true);player=audio().createBufferSource();player.buffer=buffer;gain=audio().createGain();gain.gain.value=volume;player.connect(gain).connect(audio().destination);started=audio().currentTime;player.onended=()=>{player=null;offset=0;buffer=null;document.getElementById('mascot')?.classList.remove('speaking')};player.start(0,offset);document.getElementById('mascot')?.classList.add('speaking')}
 async function speak(encoded,ticket=generation){stop(false);const bytes=Uint8Array.from(atob(encoded),c=>c.charCodeAt(0));buffer=await audio().decodeAudioData(bytes.buffer);if(ticket===generation&&!paused)play();else if(!paused)stop(false)}
-function localControl(action){generation++;paused=action==='pause';if(action==='pause')stop(true);else if(action==='stop')stop(false);else play();return {answer:action==='resume'?'Continuing.':'Speech paused.',silent:true}}
+function localControl(action){window.dispatchEvent(new CustomEvent('andrew-speech-control',{detail:action}));generation++;paused=action==='pause';if(action==='pause')stop(true);else if(action==='stop')stop(false);else play();return {answer:action==='resume'?'Continuing.':'Speech paused.',silent:true}}
 window.fetch=async (url,options={})=>{
  const path=typeof url==='string'?url:'';options={...options};options.headers=new Headers(options.headers||{});
  if(options.method==='POST')options.headers.set('X-Andrew-CSRF',document.querySelector('meta[name=andrew-csrf]')?.content||'');
+ if(options.method==='POST'&&['/api/command','/api/browser-voice'].includes(path)){const data=JSON.parse(options.body||'{}');data.device_id=window.ANDREW_DEVICE_ID;options.body=JSON.stringify(data);window.dispatchEvent(new Event('andrew-input'));}
  if(path==='/api/speech-control'){const data=JSON.parse(options.body||'{}');return new Response(JSON.stringify(localControl(data.action)),{headers:{'Content-Type':'application/json'}})}
  if(path==='/api/command'){
   const data=JSON.parse(options.body||'{}'),phrase=(data.text||'').toLowerCase().trim().replace(/[.!?]+$/,'');
@@ -25,6 +27,7 @@ window.fetch=async (url,options={})=>{
  return response;
 };
 async function talk(){
+ window.dispatchEvent(new Event('andrew-input'));
  if(recording){recording.finish();return}
  audio();const button=document.getElementById('browserTalk');
  try{

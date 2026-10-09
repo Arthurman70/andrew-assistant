@@ -60,7 +60,7 @@ class Schedule:
         with app.lock,app.db:
             columns={r[1] for r in app.db.execute('PRAGMA table_info(timers)')}
             for name,type_ in (('number','INTEGER'),('duration','REAL'),('remaining','REAL'),('created_at','REAL'),
-                               ('repeat_days','TEXT'),('alarm_time','TEXT'),('next_due','REAL')):
+                               ('repeat_days','TEXT'),('alarm_time','TEXT'),('next_due','REAL'),('browser_device','TEXT')):
                 if name not in columns:app.db.execute(f'ALTER TABLE timers ADD COLUMN {name} {type_}')
             # Preserve every deadline/status while assigning durable identities.
             for kind in ('timer','alarm','reminder'):
@@ -106,8 +106,8 @@ class Schedule:
             if repeat_days:
                 if kind!='alarm':raise ValueError('Only clock alarms can repeat.')
                 deadline=next_occurrence(clock,repeat_days,now)
-            self.app.db.execute('INSERT INTO timers(id,name,due,status,kind,source,number,duration,created_at,repeat_days,alarm_time) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-                (identity,name,deadline,'active',kind,source,number,seconds,now,json.dumps(repeat_days) if repeat_days else None,clock))
+            self.app.db.execute('INSERT INTO timers(id,name,due,status,kind,source,number,duration,created_at,repeat_days,alarm_time,browser_device) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+                (identity,name,deadline,'active',kind,source,number,seconds,now,json.dumps(repeat_days) if repeat_days else None,clock,getattr(self.app.request,'browser_device',None) if source=='browser' else None))
         row=next(r for r in self.rows() if r['id']==identity);self.remember(row,source)
         return row
 
@@ -232,6 +232,7 @@ class Schedule:
             actual=self.app.db.execute('SELECT status FROM timers WHERE id=?',(row['id'],)).fetchone()
             if not actual or actual['status'] not in LIVE:return label+' was already cancelled. Nothing changed.'
             self.app.db.execute('UPDATE timers SET '+','.join(k+'=?' for k in updates)+' WHERE id=?',(*updates.values(),row['id']))
+        if getattr(self.app,'alarm_audio',None):self.app.alarm_audio.sync()
         return answer
 
     def route(self,text,source):

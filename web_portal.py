@@ -23,8 +23,8 @@ ROOT=Path(__file__).resolve().parent
 SESSION_SECONDS=90*24*3600
 SESSION_RENEW_SECONDS=24*3600
 GET_PATHS={'/api/status','/api/providers','/api/providers?refresh=1','/api/devices','/api/models',
-           '/api/browser-notifications','/api/photo','/api/camera-frame'}
-POST_PATHS={'/api/command','/api/browser-voice','/api/provider','/api/settings','/api/pi-update',
+           '/api/browser-notifications','/api/photo','/api/camera-frame','/api/alarm-sounds','/api/alarm-sound'}
+POST_PATHS={'/api/alarm-sound','/api/alarm-preview','/api/command','/api/browser-voice','/api/provider','/api/settings','/api/pi-update',
             '/api/pc-task-stop','/api/improvements','/api/improvement-install','/api/improvement-rollback',
             '/api/tasks','/api/weather','/api/bambu','/api/followup/close','/api/camera','/api/test-provider','/api/connect-google-voice','/api/connect-claude','/api/connect-grok','/api/memory-delete','/api/test-speaker'}
 
@@ -161,7 +161,7 @@ class Handler(BaseHTTPRequestHandler):
             html=html.replace('</head>','<meta name="andrew-csrf" content="'+session['csrf']+'"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#14232a"><script src="/assets/browser.js"></script></head>')
             return self.reply(200,html.encode(),'text/html; charset=utf-8')
         if self.server.config.get('temporary'):return self.reply(403,{'error':'Change your temporary password first.'})
-        if self.path in ('/assets/andrew.png','/assets/upgrade.js','/assets/upgrade.css','/assets/browser.js','/assets/weather.js','/assets/tasks.js'):
+        if self.path in ('/assets/andrew.png','/assets/upgrade.js','/assets/upgrade.css','/assets/browser.js','/assets/weather.js','/assets/tasks.js','/assets/alarms.js'):
             kind='image/png' if self.path.endswith('.png') else ('text/css' if self.path.endswith('.css') else 'text/javascript')
             return self.reply(200,(self.server.root/self.path.lstrip('/')).read_bytes(),kind)
         return self.proxy()

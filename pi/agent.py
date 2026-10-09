@@ -37,6 +37,7 @@ REQUESTS = queue.Queue(maxsize=1)
 ANNOUNCEMENTS=queue.Queue(maxsize=4)
 DEVICE_CACHE={}
 SPEECH_STATE={'process':None,'wav':None,'start':0,'paused':None,'until':0,'revision':0,'cancel_until':0}
+ALARM_STATE={'key':'','audio':None,'next':0}
 SPEECH_LOCK=threading.RLock()
 
 def speech_control(action, notify=True):
@@ -109,8 +110,9 @@ def speaker():
     STATE['speaker'] = selected[2]
     return f'plughw:{selected[1]},{selected[3]}'
 
-def play(encoded):
+def play(encoded,alarm_key=None):
     with PLAY_LOCK:
+        if alarm_key and alarm_key!=ALARM_STATE['key']:return
         BUSY.set(); STATE['phase']='speaking'
         try:
             STATE.update(playback_started_at=time.time(),playback_state='playing')
@@ -118,7 +120,7 @@ def play(encoded):
             with SPEECH_LOCK:
                 if time.monotonic()<SPEECH_STATE['cancel_until']:return
                 process=subprocess.Popen(['aplay','-q','-D',speaker()],stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
-                SPEECH_STATE.update(process=process,wav=content,start=time.monotonic())
+                SPEECH_STATE.update(process=process,wav=content,start=time.monotonic(),alarm_key=alarm_key)
             process.communicate(scale_wav(content,CONFIG.get('volume',80)),timeout=playback_timeout(content))
             if process.returncode and process.returncode>=0:raise RuntimeError('Speaker playback failed.')
             STATE.update(playback_finished_at=time.time(),playback_state='finished')
@@ -152,6 +154,17 @@ def poll():
             if control.get('revision',0)>SPEECH_STATE['revision']:
                 SPEECH_STATE['revision']=control['revision']
                 speech_control(control.get('action'),notify=False)
+            alarm=result.get('alarm_audio',{});key=alarm.get('key','')
+            if alarm.get('audio'):
+                ALARM_STATE['audio']=alarm['audio'];STATE['alarm_sound_revision']=alarm.get('revision')
+            if key!=ALARM_STATE['key']:
+                ALARM_STATE.update(key=key,next=0)
+                with SPEECH_LOCK:
+                    process=SPEECH_STATE.get('process')
+                    if SPEECH_STATE.get('alarm_key') and process and process.poll() is None:process.terminate()
+            if key and ALARM_STATE['audio'] and time.monotonic()>=ALARM_STATE['next'] and not PLAY_LOCK.locked() and not REQUEST_BUSY.is_set() and STATE.get('phase')!='listening':
+                try:ANNOUNCEMENTS.put_nowait((ALARM_STATE['audio'],None,key));ALARM_STATE['next']=time.monotonic()+8
+                except queue.Full:pass
             if result.get('pause_capture'): PAUSED.set()
             else: PAUSED.clear()
             if result.get('audio_settings'):
@@ -257,8 +270,8 @@ def main():
     def announce():
         while True:
             try:
-                item=ANNOUNCEMENTS.get();audio,grant=item if isinstance(item,tuple) else (item,None)
-                play(audio)
+                item=ANNOUNCEMENTS.get();audio,grant=item[:2] if isinstance(item,tuple) else (item,None)
+                play(audio,item[2] if isinstance(item,tuple) and len(item)>2 else None)
                 if grant:CONFIG['followup']=api('/api/followup/arm',{'grant':grant}).get('followup',{})
             except Exception as exc: STATE['error']='Speaker playback: '+str(exc)[:120]
     threading.Thread(target=announce,daemon=True).start()

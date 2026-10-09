@@ -7,6 +7,9 @@ from pathlib import Path, PurePosixPath
 import re
 
 ROLES={
+ 'alarm_audio.py':'private cinematic PCM conversion, built-in alarm chime, repeating device-bound alarm lifecycle',
+ 'speaker_player.py':'selected PC speaker playback, volume, cancellable alarm clips and speech pause/resume',
+ 'assets/alarms.js':'alarm sound picker, previews and originating-browser alarm playback',
  'scheduled_tasks.py':'persistent timed task execution, calendar/relative scheduling, queue, outcomes and task editing',
  'assets/tasks.js':'shared scheduled-task form, status, run-time edits, pause/cancel and results',
  'weather.py':'cached real daily/hourly forecasts, natural date ranges, timezone selection and weather follow-ups',
@@ -181,6 +184,11 @@ def context(base,selected,index,request):
             chosen += ['Andrew.__init__','Andrew.due','Andrew.status']
         if name=='feature_timers.py' and not explicit:
             chosen += ['Schedule.__init__','Schedule.route']
+        audio_alarm=bool(re.search(r'\b(?:alarms?|timers?)\b',request,re.I) and re.search(r'\b(?:sounds?|audio|playback|cinematic|chimes?|ringing|ringtones?)\b',request,re.I))
+        if audio_alarm:
+            if name=='server.py':chosen+=['scheduler','speak','speech_worker','dispatch_alarm']
+            if name=='pi/agent.py':chosen+=['play','poll']
+            if name=='feature_timers.py':chosen+=['Schedule.modify']
         lines=text.splitlines(keepends=True);ranges=[]
         for item in chosen:
             if item in symbols:ranges.append(tuple(symbols[item]))

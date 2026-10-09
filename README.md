@@ -20,6 +20,12 @@ Rename with **“Hey Andrew, I’ll call you Charlie”**, **“call yourself Al
 
 Adaptive listening is slightly more tolerant in a quiet room. TV/media and quiet mode retain stronger foreground checks. Self-improvement can adjust `wake_tuning.json` within validated bounds; capture code can also be improved while preserving wake-only transcription and the complete wake phrase.
 
+## Alarm sounds
+
+Clock alarms play a repeating sound on the PC, Pi or browser where they were created. **Settings → Alarm sound** offers a built-in chime and local PCM WAV files from **Downloads/Cinematic…** folders. Choose a sound, **Save sound**, then **Preview**. Four-second cinematic excerpts are normalized and fade in/out; sound repeats every eight seconds, leaving a quiet gap for voice commands. Your library audio is private and is not included in public packages.
+
+Dismiss/cancel stops the current and queued clips; snooze stops sound until the next due occurrence. **Quiet** pauses the source device's alarm sound, and **Continue** resumes it while the alarm remains ringing. PC alarms play even when spoken replies are disabled, using Andrew's selected speaker and volume. Pi alarms require the host connection. Browser alarms are bound to the browser that created them; keep its page open and tap **Enable alarm sound** if autoplay is blocked. Timers and reminders keep their existing spoken notifications.
+
 ## Scheduled tasks
 
 Say **“open Chrome in ten minutes”**, **“at 7 pm open Spotify”**, **“schedule a task to read the news tomorrow at 7 am”**, or **“read the news every weekday at 7 am”**. These requests save and execute the actual command through Andrew's normal app and PC tools. Timers, alarms and reminders remain alerts. The host PC's local clock sets the time; the host must stay awake. Overdue queued tasks run when the host is available, and busy PC work is queued instead of discarded.

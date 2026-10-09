@@ -42,7 +42,7 @@ class AlarmFeatureTests(unittest.TestCase):
     def test_ringing_alarm_announces_and_stops(self):
         self.andrew.command('set an alarm for 7 am', source='pi')
         messages = self.andrew.due(time.time() + 2 * 86400)
-        self.assertEqual(messages, [{'text': 'Alarm 1 is ringing.', 'source': 'pi'}])
+        self.assertEqual(messages, [{'text': 'Alarm 1 is ringing.', 'source': 'pi','kind':'alarm','id':self.alarms()[0]['id']}])
         self.assertEqual(self.andrew.command('stop the alarm'), 'Cancelled Alarm 1.')
         self.assertEqual(self.alarms(), [])
 
