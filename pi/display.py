@@ -6,17 +6,27 @@ from pathlib import Path
 import signal
 import socket
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
 from urllib.parse import urlsplit
+from screensaver import ScreenSaver
 
 HOME_URL='http://127.0.0.1:8770/'
 RUNTIME=Path('/run/andrew')
+DESKTOP=os.environ.get('ANDREW_DESKTOP')=='1'
 process=None
 current='home'
 lock=threading.RLock()
 last_error=''
+video_paused=False
+SAVER=ScreenSaver(RUNTIME,DESKTOP)
+
+
+def status():
+    return {'mode':current,'running':bool(process and process.poll() is None),'error':last_error,
+            'screensaver':SAVER.status()}
 
 
 def stop_display():
@@ -36,11 +46,13 @@ def stop_display():
 
 
 def navigate(url=HOME_URL):
-    global process,current,last_error
+    global process,current,last_error,video_paused
     parsed=urlsplit(url)
     if parsed.scheme not in ('http','https') or not parsed.hostname or parsed.username or parsed.password or any(ord(c)<33 for c in url):
         raise ValueError('A normal HTTP or HTTPS website address is required.')
     with lock:
+        SAVER.activity()
+        video_paused=False
         stop_display()
         time.sleep(.6)
         media=parsed.path.lower().endswith(('.mp4','.webm','.mkv','.mov','.m3u8'))
@@ -53,13 +65,13 @@ def navigate(url=HOME_URL):
                 Path(os.environ['HOME'],'.asoundrc').write_text('pcm.!default { type plug slave.pcm "'+output+'" }\n')
         except Exception: pass
         if media: (RUNTIME/'mpv.sock').unlink(missing_ok=True)
-        player=(['mpv','--fs','--no-terminal','--no-config','--log-file=/run/andrew/mpv.log',
+        player=(['mpv']+([] if DESKTOP else ['--fs'])+['--no-terminal','--no-config','--log-file=/run/andrew/mpv.log',
                  '--input-ipc-server=/run/andrew/mpv.sock',url] if media else
-            ['chromium','--ozone-platform=wayland','--kiosk','--no-first-run','--disable-session-crashed-bubble',
+            ['chromium','--ozone-platform=wayland']+(['--app='+url] if DESKTOP and url==HOME_URL else (['--new-window'] if DESKTOP else ['--kiosk']))+['--no-first-run','--disable-session-crashed-bubble',
              '--autoplay-policy=no-user-gesture-required','--password-store=basic',
              '--disk-cache-size=20971520','--user-data-dir=/run/andrew/browser-profile',url])
         with open(RUNTIME/'display.log','ab',buffering=0) as output:
-            process=subprocess.Popen(['cage','-d','--']+player,stdout=output,stderr=output,start_new_session=True)
+            process=subprocess.Popen(player if DESKTOP else ['cage','-d','--']+player,stdout=output,stderr=output,start_new_session=True)
         current='video' if media else ('home' if url==HOME_URL else 'browser')
         if media:
             ready=False
@@ -90,28 +102,41 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)))
         self.end_headers();self.wfile.write(payload)
     def do_GET(self):
-        self.reply(200,{'mode':current,'running':bool(process and process.poll() is None),'error':last_error})
+        self.reply(200,status())
     def do_POST(self):
+        global video_paused
         if self.headers.get('X-Andrew-Display')!='1' or self.headers.get('Origin'):
             return self.reply(403,{'error':'Local agent only.'})
         try:
             length=int(self.headers.get('Content-Length',0))
             if not 0<length<4096: raise ValueError('Invalid request.')
             data=json.loads(self.rfile.read(length));action=data.get('action')
-            if action=='home': navigate()
+            if action in ('wake','activity'):
+                SAVER.activity(data.get('wake_phrase'))
+                if action=='wake' and current=='home' and not (process and process.poll() is None):navigate()
+            elif action=='desktop-idle':SAVER.desktop(True)
+            elif action=='desktop-active':SAVER.desktop(False)
+            elif action=='heartbeat':
+                busy=data.get('busy',False)
+                if not isinstance(busy,bool):raise ValueError('Invalid activity state.')
+                SAVER.voice(busy,data.get('wake_phrase'))
+            elif action=='home': navigate()
             elif action=='open': navigate(data['url'])
             elif action in ('pause','resume'):
                 if current!='video': raise ValueError('Pause and resume apply to direct video files. Use the website controls for web videos.')
                 with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as client:
                     client.settimeout(2);client.connect('/run/andrew/mpv.sock')
                     client.sendall((json.dumps({'command':['set_property','pause',action=='pause']})+'\n').encode())
+                video_paused=action=='pause'
+                SAVER.activity()
             else: raise ValueError('Unknown display command.')
-            self.reply(200,{'ok':True,'mode':current})
+            self.reply(200,{'ok':True,**status()})
         except Exception as exc: self.reply(503,{'error':str(exc)[:180]})
 
 
 def main():
     def shutdown(*_):
+        SAVER.close()
         stop_display()
         raise SystemExit(0)
     signal.signal(signal.SIGTERM,shutdown)
@@ -119,14 +144,23 @@ def main():
         (RUNTIME/folder).mkdir(exist_ok=True,mode=0o700)
     try: navigate()
     except Exception: pass
+    SAVER.start_monitor(Path(__file__).resolve())
     def watch():
         while True:
             time.sleep(2)
             with lock:
+                SAVER.tick(current=='video' and not video_paused)
                 if current!='home' and process and process.poll() is not None:
                     try: navigate()
                     except Exception: pass
     threading.Thread(target=watch,daemon=True).start()
     ThreadingHTTPServer(('127.0.0.1',8771),Handler).serve_forever()
 
-if __name__=='__main__': main()
+if __name__=='__main__':
+    if len(sys.argv)==2 and sys.argv[1] in ('--desktop-idle','--desktop-active'):
+        action=sys.argv[1][2:]
+        request=urllib.request.Request('http://127.0.0.1:8771/',json.dumps({'action':action}).encode(),
+            {'Content-Type':'application/json','X-Andrew-Display':'1'})
+        try:urllib.request.urlopen(request,timeout=4).close()
+        except OSError:pass
+    else:main()

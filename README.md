@@ -152,3 +152,7 @@ Official Windows package upgrades use a stored upstream baseline to merge new fi
 
 
 Long readings: Andrew can inspect document/app text in 12,000-character chunks and request subsequent sections when the job needs them. Screen previews report when text is truncated; they are not the complete document. Requests, editor text, and task replies support 32,000 characters. “Read this text: …” reads a supplied passage directly. Local speech synthesizes bounded chunks and joins them without the former 2,000–2,400-character cutoff, keeping interruption/resume on the complete audio. Ordinary responses remain concise; requested detailed work receives a larger local-model budget.
+
+### Pi desktop screensaver
+
+On the normal Pi desktop, Andrew shows a full-screen resting avatar and drifting clock after 15 minutes without desktop or conversation activity. The current wake phrase dismisses it locally before transcription or a provider response. Keyboard, mouse, and touchscreen input also dismiss it. Direct videos and ongoing replies keep the screen awake. Voice listening, timers, and alarms continue; the screensaver never accesses the microphone or camera itself. Desktop installations use the lightweight `swayidle` monitor.

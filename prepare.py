@@ -76,6 +76,8 @@ def main():
             ('pi/andrew-bootstrap.service', '/etc/systemd/system/andrew-bootstrap.service', '0644'),
             ('pi/screen.py', '/opt/andrew/screen.py', '0644'),
             ('pi/display.py','/opt/andrew/display.py','0644'),
+            ('pi/screensaver.py','/opt/andrew/screensaver.py','0644'),
+            ('pi/screensaver.html','/opt/andrew/screensaver.html','0644'),
             ('assets/andrew.png','/opt/andrew/andrew.png','0644'),
             ('pi/screen.html', '/opt/andrew/screen.html', '0644'),
             ('pi/andrew-screen.service', '/etc/systemd/system/andrew-screen.service', '0644'),

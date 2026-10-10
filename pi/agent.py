@@ -40,6 +40,17 @@ SPEECH_STATE={'process':None,'wav':None,'start':0,'paused':None,'until':0,'revis
 ALARM_STATE={'key':'','audio':None,'next':0}
 SPEECH_LOCK=threading.RLock()
 
+
+def display_wake():
+    # Wake the screen at local keyword detection, before transcription or AI.
+    def send():
+        request=urllib.request.Request('http://127.0.0.1:8771/',
+            json.dumps({'action':'wake','wake_phrase':wake_phrase(CONFIG.get('name','Andrew'))}).encode(),
+            {'Content-Type':'application/json','X-Andrew-Display':'1'})
+        try:urllib.request.urlopen(request,timeout=1).close()
+        except OSError:pass
+    threading.Thread(target=send,daemon=True).start()
+
 def speech_control(action, notify=True):
     with SPEECH_LOCK:
         process=SPEECH_STATE['process']
@@ -193,7 +204,11 @@ def poll():
                     except Exception as exc: error='Display unavailable: '+str(exc)[:130]
                     api('/api/job-result',{'job_id':job['id'],'error':error})
             try:
-                with urllib.request.urlopen('http://127.0.0.1:8771/',timeout=2) as display:
+                request=urllib.request.Request('http://127.0.0.1:8771/',json.dumps({'action':'heartbeat',
+                    'busy':BUSY.is_set() or REQUEST_BUSY.is_set() or STATE.get('phase')=='listening',
+                    'wake_phrase':wake_phrase(CONFIG.get('name','Andrew'))}).encode(),
+                    {'Content-Type':'application/json','X-Andrew-Display':'1'})
+                with urllib.request.urlopen(request,timeout=2) as display:
                     STATE['display']=json.load(display)
             except Exception: STATE['display']={'running':False}
             api('/api/relay-health',dict(STATE))
@@ -255,7 +270,9 @@ def capture():
             request=capture.feed(frame,CONFIG.get('name','Andrew'),CONFIG.get('wake_mode','adaptive'),media)
             STATE.update(wake_phrase=wake_phrase(CONFIG.get('name','Andrew')),background_guard=capture.cautious,
                          empty_wakes=capture.empty_wakes,rejected_wakes=capture.rejected_wakes)
-            if not was_active and capture.active and capture.activation=='wake':STATE['wakes']+=1
+            if not was_active and capture.active and capture.activation=='wake':
+                STATE['wakes']+=1
+                display_wake()
             if not BUSY.is_set(): STATE['phase']=capture.phase
             if request is not None:
                 REQUEST_BUSY.set();STATE['phase']='recognizing'

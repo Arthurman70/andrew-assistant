@@ -8,7 +8,7 @@ ROOT=Path(__file__).resolve().parents[1]
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--pc-ip',required=True);args=parser.parse_args()
     subprocess.run([sys.executable,str(ROOT/'prepare.py'),'--pc-ip',args.pc_ip],check=True)
-    names=['pi/agent.py','pi/camera_capture.py','pi/display.py','pi/screen.py','pi/screen.html','pi/install.sh',
+    names=['pi/agent.py','pi/camera_capture.py','pi/display.py','pi/screen.py','pi/screen.html','pi/screensaver.py','pi/screensaver.html','pi/install.sh',
            'pi/install-screen.sh','pi/andrew-relay.service','pi/andrew-screen.service','wake_detector.py','wake_capture.py',
            'background_guard.py','voice_tuning.py','wake_tuning.json','audio_utils.py','interruption.py','pi/relay-config.json','data/server.crt',
            'assets/andrew.png','assets/upgrade.js','assets/upgrade.css','assets/weather.js','assets/tasks.js','assets/alarms.js','assets/voice_offline.wav']

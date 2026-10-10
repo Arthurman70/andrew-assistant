@@ -37,6 +37,12 @@ class Screen(BaseHTTPRequestHandler):
         except Exception:
             self.reply(503, {'error': 'PC unavailable. Check that Andrew is running and the PC is awake.'})
 
+    def display_activity(self):
+        request=urllib.request.Request('http://127.0.0.1:8771/',b'{"action":"activity"}',
+            {'Content-Type':'application/json','X-Andrew-Display':'1'})
+        try:urllib.request.urlopen(request,timeout=1).close()
+        except OSError:pass
+
     def valid(self):
         return self.headers.get('Host') in ('127.0.0.1:8770', 'localhost:8770') and self.headers.get('Origin', 'http://127.0.0.1:8770') in ('http://127.0.0.1:8770', 'http://localhost:8770')
 
@@ -45,6 +51,13 @@ class Screen(BaseHTTPRequestHandler):
             return self.reply(403, {'error': 'Local display only.'})
         if self.path == '/':
             return self.reply(200, (BASE / 'screen.html').read_bytes(), 'text/html; charset=utf-8')
+        if self.path == '/screensaver':
+            return self.reply(200,(BASE/'screensaver.html').read_bytes(),'text/html; charset=utf-8')
+        if self.path == '/api/screensaver':
+            try:
+                with urllib.request.urlopen('http://127.0.0.1:8771/',timeout=2) as response:
+                    return self.reply(200,json.load(response).get('screensaver',{}))
+            except OSError:return self.reply(503,{'error':'Display unavailable.'})
         if self.path in ('/api/alarm-sounds','/api/alarm-sound'):return self.proxy(self.path)
         if self.path == '/api/status':
             return self.proxy(self.path)
@@ -63,9 +76,14 @@ class Screen(BaseHTTPRequestHandler):
             return self.reply(403, {'error': 'Local display only.'})
         try:
             length = int(self.headers.get('Content-Length', 0))
-            if not 1 <= length <= 8000 or self.path not in ('/api/command','/api/speech-control','/api/tasks','/api/alarm-sound','/api/alarm-preview'):
+            if not 1 <= length <= 8000 or self.path not in ('/api/command','/api/speech-control','/api/tasks','/api/alarm-sound','/api/alarm-preview','/api/screensaver'):
                 raise ValueError()
             data = json.loads(self.rfile.read(length))
+            if self.path=='/api/screensaver':
+                if data.get('action')!='activity':raise ValueError()
+                self.display_activity()
+                return self.reply(200,{'ok':True})
+            self.display_activity()
             if self.path in ('/api/alarm-sound','/api/alarm-preview'):return self.proxy(self.path,{**data,'source':'pi'})
             if self.path=='/api/tasks':return self.proxy(self.path,{**data,'source':'pi'})
             if self.path=='/api/speech-control':return self.proxy(self.path,{'action':data.get('action'),'source':'pi'})

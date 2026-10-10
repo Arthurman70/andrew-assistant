@@ -31,6 +31,8 @@ ROLES={
  'server.py':'HTTP API, authentication, audio gates, notifications and service startup',
  'pc_audio.py':'PC microphone capture, wake detection, utterance endpointing',
  'pi/agent.py':'Pi microphone, wake detection, relay, local playback',
+ 'pi/screensaver.py':'Pi desktop inactivity timer, animated window lifecycle and local wake dismissal',
+ 'pi/screensaver.html':'lightweight sleeping avatar, drifting clock and wake-phrase animation',
  'wake_detector.py':'local keyword spotting, assistant name and addressed wake phrase',
  'wake_capture.py':'wake-only recording gates, command capture and speech endpointing',
  'background_guard.py':'background chatter, media rejection, foreground speech',

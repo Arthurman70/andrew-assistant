@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Andrew · Resting</title>
+<style>
+*{box-sizing:border-box}body{margin:0;overflow:hidden;background:#08151e;color:#d1e5e8;font-family:system-ui;cursor:none}
+main{position:fixed;inset:0;background:radial-gradient(ellipse at 30% 30%,#17354b 0,transparent 60%),radial-gradient(ellipse at 85% 85%,#1c3940 0,transparent 55%)}
+.aurora{position:absolute;inset:-40%;background:conic-gradient(from 40deg,transparent,#365c7135,transparent,#36808026,transparent);filter:blur(45px);animation:sky 90s linear infinite;opacity:.65}
+.stars{position:absolute;inset:0;background-image:radial-gradient(circle,#c7e7e860 1px,transparent 1.5px),radial-gradient(circle,#86c9ca40 1px,transparent 1.5px);background-size:127px 163px,211px 233px;background-position:19px 17px,67px 83px;animation:twinkle 9s ease-in-out infinite alternate}
+.wander{position:absolute;left:calc(50% - 190px);top:calc(50% - 240px);width:380px;text-align:center;animation:drift 110s ease-in-out infinite}
+.friend{position:relative;height:240px}.halo{position:absolute;inset:15% 14%;background:#7bdfbd18;border-radius:50%;filter:blur(35px)}
+img{position:relative;width:260px;height:240px;object-fit:contain;filter:drop-shadow(0 14px 24px #0006);animation:nap 6s ease-in-out infinite}
+.clock{font-size:clamp(40px,5vw,64px);font-weight:250;letter-spacing:-2px;margin-top:18px;font-variant-numeric:tabular-nums}.date{font-size:16px;color:#aac1cd;margin-top:5px}.wake{font-size:17px;color:#b8dace;margin-top:24px}.hint{font-size:13px;color:#88a4b5;margin-top:7px}
+@keyframes sky{to{transform:rotate(360deg)}}@keyframes twinkle{to{opacity:.45}}@keyframes nap{50%{transform:translateY(-9px) rotate(2deg) scale(1.025,.975)}}
+@keyframes drift{0%,100%{transform:translate(-8vw,-8vh)}25%{transform:translate(15vw,-4vh)}50%{transform:translate(8vw,14vh)}75%{transform:translate(-17vw,9vh)}}
+@media(max-height:600px){.wander{top:calc(50% - 175px)}.friend,img{height:160px}.clock{margin-top:8px}.wake{margin-top:16px}}
+@media(prefers-reduced-motion:reduce){.aurora,.stars,.wander,img{animation:none}}
+</style>
+<main aria-label="Andrew screensaver"><div class="aurora"></div><div class="stars"></div><section class="wander"><div class="friend"><div class="halo"></div><img src="/assets/andrew.png" alt="Andrew resting"></div><div class="clock" id="clock"></div><div class="date" id="date"></div><div class="wake" id="wake">Listening for your wake phrase</div><div class="hint">Or touch the screen, move the mouse, or press a key</div></section></main>
+<script>
+function clock(){const now=new Date();document.getElementById('clock').textContent=now.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});document.getElementById('date').textContent=now.toLocaleDateString([],{weekday:'long',month:'short',day:'numeric'})}clock();setInterval(clock,1000);
+async function refresh(){try{const response=await fetch('/api/screensaver');const state=await response.json();if(state.wake_phrase)document.getElementById('wake').textContent='Say “'+state.wake_phrase+'” to wake me'}catch{}}refresh();setInterval(refresh,5000);
+let waking=false;function wake(){if(waking)return;waking=true;fetch('/api/screensaver',{method:'POST',headers:{'Content-Type':'application/json','X-Andrew-Screen':'1'},body:JSON.stringify({action:'activity'})}).catch(()=>{waking=false})}
+document.addEventListener('pointerdown',wake);document.addEventListener('keydown',wake);
+</script></html>
