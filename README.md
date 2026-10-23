@@ -1,4 +1,12 @@
-# Andrew
+# Andrew — Windows Voice Assistant with Raspberry Pi and Mobile Clients
+
+[![Download Windows prerelease](https://img.shields.io/badge/Download%20Windows%20prerelease-2563eb?style=for-the-badge)](https://github.com/Arthurman70/andrew-assistant/releases/download/v0.1.13/Andrew-Setup.exe) [![Download Android APK](https://img.shields.io/badge/Download%20Android%20APK-0f766e?style=for-the-badge)](https://github.com/Arthurman70/andrew-assistant/releases/download/v0.1.13/Andrew-Android.apk) [![All device downloads](https://img.shields.io/badge/All%20device%20downloads-475569?style=for-the-badge)](https://github.com/Arthurman70/andrew-assistant/releases/tag/v0.1.13)
+
+[Hosted sign-in](https://andrew.thegreatlakesgleaner.press/) · [Windows setup](#windows-installation) · [Self-hosting](DEPLOYMENT.md) · [FAQ](#frequently-asked-questions)
+
+**Early prerelease v0.1.13.** Install and configure the Windows host first. Pi and browser/mobile clients rely on an awake host. The hosted website requires an account; it is not an anonymous demo.
+
+**Downloads and setup:** [Download Windows prerelease](https://github.com/Arthurman70/andrew-assistant/releases/download/v0.1.13/Andrew-Setup.exe) · [Download Android APK](https://github.com/Arthurman70/andrew-assistant/releases/download/v0.1.13/Andrew-Android.apk) · [All device downloads](https://github.com/Arthurman70/andrew-assistant/releases/tag/v0.1.13)
 
 An open-source assistant with a Windows host, Raspberry Pi voice/screen satellite, and authenticated browser/mobile client. Use local commands for everyday tasks and signed-in Grok, Claude, or OpenAI accounts for conversation and automatic, tested improvements.
 
@@ -152,3 +160,47 @@ Official Windows package upgrades use a stored upstream baseline to merge new fi
 
 
 Long readings: Andrew can inspect document/app text in 12,000-character chunks and request subsequent sections when the job needs them. Screen previews report when text is truncated; they are not the complete document. Requests, editor text, and task replies support 32,000 characters. “Read this text: …” reads a supplied passage directly. Local speech synthesizes bounded chunks and joins them without the former 2,000–2,400-character cutoff, keeping interruption/resume on the complete audio. Ordinary responses remain concise; requested detailed work receives a larger local-model budget.
+
+## Frequently asked questions
+
+Answers describe this repository and its documented scope as of **October 23, 2026**.
+
+### What is Andrew, and can it be a voice assistant for my Windows PC?
+
+Andrew is an early-stage assistant with a Windows host, optional Raspberry Pi voice/display satellites, and authenticated browser or mobile clients. It handles local timers, alarms and basic commands, plus connected AI conversation and desktop tasks. It is not a promise of full Alexa replacement or compatibility with every device.
+
+### How do I download and install Andrew on Windows?
+
+Download the v0.1.13 prerelease **Andrew-Setup.exe**, or extract **Andrew-Windows.zip** and open **Install Andrew.cmd**. Setup can install Python 3.12 for your user and download speech models, which require several GB. Follow [Windows installation](#windows-installation) to choose audio devices and connect accounts.
+
+### Can Andrew work without a paid AI API key?
+
+Local timers, games and basic commands do not need an AI connection. Conversation and planning can use configured account connections, or optional local Ollama inference. Account subscriptions and limits still apply. Andrew does not silently fall back to paid API billing when those connections are unavailable.
+
+### Can I run Andrew entirely on a Raspberry Pi?
+
+The documented Pi setup is a satellite for a Windows host, not a standalone replacement for that host. Use a Pi 4 or 5 with 64-bit Raspberry Pi OS, Ethernet, a microphone and speakers. The Windows PC performs recognition and speech generation and must remain awake. See [Raspberry Pi satellite](#raspberry-pi-satellite).
+
+### Can I use Andrew on Android or in a web browser?
+
+Yes, through a configured authenticated HTTPS gateway connected to an awake Windows host. The release provides an Android APK, and the browser app can be installed as a PWA. Mobile requests use explicit foreground push-to-talk. There is no Play Store listing; see the [client guide](#browser-widget-pwa-android).
+
+### Is the hosted Andrew website a public demo that anyone can use?
+
+The linked hosted instance requires an account; it is not an anonymous public demo. You can download the project and configure your own host and gateway using [DEPLOYMENT.md](DEPLOYMENT.md). A browser login alone does not create a Windows host or pair devices.
+
+### Does Andrew listen continuously or send all room audio to the cloud?
+
+PC/Pi wake detection runs locally. Addressed requests are transcribed, and a visible follow-up window can briefly accept another request without a wake phrase. Selected AI services may receive addressed text and requested content. Browser/mobile microphones use explicit push-to-talk. The [privacy section](#privacy-and-development) describes the boundaries and stored memory.
+
+### Can Andrew use my existing Chrome or Edge login for browser tasks?
+
+The optional Andrew Companion extension connects the Windows host to your regular browser session. It requires the native connector plus extension setup, and page access depends on its permissions and site grants. It does not export cookies or passwords. See the [Companion installation guide](companion/README.md).
+
+### Can Andrew schedule tasks and control smart-home devices?
+
+It supports scheduled PC tasks and can connect to Home Assistant for devices such as lights and thermostats. Actual availability depends on your configured integrations and devices. The host must be awake for execution; the [scheduled tasks guide](#scheduled-tasks) explains saved status, overdue work and interrupted tasks.
+
+### How does Andrew update itself, and can I undo changes?
+
+The documented improvement workflow stages a bounded patch, runs regression checks, keeps backups and supports **undo last improvement**. You can choose draft-only review. Generated code and tests are not a security sandbox or a guarantee of correctness; see the [development and privacy notes](#privacy-and-development) before enabling automated changes.
