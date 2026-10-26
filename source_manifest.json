@@ -1,4 +1,10 @@
 [
+  "conversation_turns.py",
+  "tests/test_conversation_turns.py",
+  "launcher.py",
+  "Repair Andrew.cmd",
+  "installers/Install-Shortcuts.ps1",
+  "tests/test_launcher.py",
   "android/app/build.gradle",
   "android/app/src/main/AndroidManifest.xml",
   "android/app/src/main/java/org/andrewassistant/app/MainActivity.java",
@@ -155,5 +161,6 @@
   "web/manifest.webmanifest",
   "web/password.html",
   "web/sw.js",
-  "web/widget.js"
+  "web/widget.js",
+  "tests/test_speech_memory.py"
 ]

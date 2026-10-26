@@ -51,13 +51,13 @@ class CaptureTests(unittest.TestCase):
         capture.command_vad=Mock()
         return capture
 
-    def test_short_command_finishes_after_720ms(self):
+    def test_short_command_allows_1800ms_thinking_pause(self):
         capture=self.make_capture()
         frame=np.full(320,300,dtype='<i2').tobytes()
         capture.command_vad.is_speech.return_value=True
-        for _ in range(6):self.assertIsNone(capture.feed(frame,'Andrew'))
+        for _ in range(12):self.assertIsNone(capture.feed(frame,'Andrew'))
         capture.command_vad.is_speech.return_value=False
-        for _ in range(35):self.assertIsNone(capture.feed(bytes(640),'Andrew'))
+        for _ in range(89):self.assertIsNone(capture.feed(bytes(640),'Andrew'))
         result=capture.feed(bytes(640),'Andrew')
         self.assertTrue(result);self.assertFalse(capture.active)
 
@@ -79,7 +79,7 @@ class CaptureTests(unittest.TestCase):
         capture.command_vad.is_speech.return_value=True
         for _ in range(12):self.assertIsNone(capture.feed(second,'Andrew'))
         capture.command_vad.is_speech.return_value=False
-        for _ in range(35):self.assertIsNone(capture.feed(bytes(640),'Andrew'))
+        for _ in range(89):self.assertIsNone(capture.feed(bytes(640),'Andrew'))
         result=capture.feed(bytes(640),'Andrew')
         self.assertIn(first*10,result);self.assertIn(second*12,result)
 
@@ -118,19 +118,27 @@ class DeliveryTests(unittest.TestCase):
         if source=='pi':self.assertEqual(base64.b64decode(result['audio']),self.wav)
         else:self.assertEqual(self.server.SPEECH.get_nowait()[0],self.wav)
 
-    def test_empty_capture_responds_on_both_devices_without_asr(self):
+    def test_empty_capture_is_quiet_on_both_devices_without_asr(self):
         with patch.object(self.server.ENGINE,'transcribe',side_effect=AssertionError('No silence transcription')):
-            for source in ('pc','pi'):self.assert_spoken(self.request(source,b''),source)
+            for source in ('pc','pi'):
+                result=self.request(source,b'');self.assertTrue(result['no_speech']);self.assertEqual(result['answer'],'');self.assertNotIn('audio',result)
+        self.assertTrue(self.server.SPEECH.empty())
 
-    def test_empty_transcript_and_recognition_error_are_audible(self):
-        for failure in ('',RuntimeError('ASR down')):
+    def test_recognition_error_after_real_wake_remains_audible(self):
+        for failure in (RuntimeError('ASR down'),):
             for source in ('pc','pi'):
                 with patch.object(self.server.ENGINE,'transcribe',**({'side_effect':failure} if isinstance(failure,Exception) else {'return_value':failure})):
                     result=self.request(source);self.assertTrue(result['retry']);self.assert_spoken(result,source)
 
-    def test_name_only_has_spoken_retry_not_dead_listening_animation(self):
+    def test_name_only_returns_quietly_to_idle(self):
         with patch.object(self.server.ENGINE,'transcribe',return_value='Andrew'):
-            result=self.request();self.assertTrue(result['retry']);self.assert_spoken(result,'pc')
+            result=self.request();self.assertTrue(result['no_speech']);self.assertEqual(result['answer'],'');self.assertTrue(self.server.SPEECH.empty())
+
+    def test_empty_transcript_is_quiet_on_both_devices(self):
+        with patch.object(self.server.ENGINE,'transcribe',return_value=''):
+            for source in ('pc','pi'):
+                result=self.request(source);self.assertTrue(result['silent']);self.assertNotIn('audio',result)
+        self.assertTrue(self.server.SPEECH.empty())
 
     def test_provider_exception_has_audible_response(self):
         with patch.object(self.server.ENGINE,'transcribe',return_value='Explain rain'),patch.object(self.app,'command',side_effect=RuntimeError('offline')):

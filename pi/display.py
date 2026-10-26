@@ -26,7 +26,19 @@ SAVER=ScreenSaver(RUNTIME,DESKTOP)
 
 def status():
     return {'mode':current,'running':bool(process and process.poll() is None),'error':last_error,
-            'screensaver':SAVER.status()}
+            'desktop_available':DESKTOP,'screensaver':SAVER.status()}
+
+
+def show_desktop():
+    global process,current,last_error,video_paused
+    if not DESKTOP:raise ValueError('This Pi installation does not have a normal desktop.')
+    with lock:
+        SAVER.activity()
+        stop_display()
+        process=None
+        current='desktop'
+        video_paused=False
+        last_error=''
 
 
 def stop_display():
@@ -61,13 +73,13 @@ def navigate(url=HOME_URL):
             import re
             with urllib.request.urlopen('http://127.0.0.1:8770/api/status',timeout=3) as reply:
                 output=json.load(reply).get('pi_output','auto')
-            if re.fullmatch(r'plughw:[A-Za-z0-9_]+,[0-9]+',output):
+            if not DESKTOP and re.fullmatch(r'plughw:[A-Za-z0-9_]+,[0-9]+',output):
                 Path(os.environ['HOME'],'.asoundrc').write_text('pcm.!default { type plug slave.pcm "'+output+'" }\n')
         except Exception: pass
         if media: (RUNTIME/'mpv.sock').unlink(missing_ok=True)
         player=(['mpv']+([] if DESKTOP else ['--fs'])+['--no-terminal','--no-config','--log-file=/run/andrew/mpv.log',
                  '--input-ipc-server=/run/andrew/mpv.sock',url] if media else
-            ['chromium','--ozone-platform=wayland']+(['--app='+url] if DESKTOP and url==HOME_URL else (['--new-window'] if DESKTOP else ['--kiosk']))+['--no-first-run','--disable-session-crashed-bubble',
+            ['chromium','--ozone-platform=wayland']+(['--kiosk'] if url==HOME_URL or not DESKTOP else ['--new-window'])+['--no-first-run','--disable-session-crashed-bubble',
              '--autoplay-policy=no-user-gesture-required','--password-store=basic',
              '--disk-cache-size=20971520','--user-data-dir=/run/andrew/browser-profile',url])
         with open(RUNTIME/'display.log','ab',buffering=0) as output:
@@ -113,7 +125,7 @@ class Handler(BaseHTTPRequestHandler):
             data=json.loads(self.rfile.read(length));action=data.get('action')
             if action in ('wake','activity'):
                 SAVER.activity(data.get('wake_phrase'))
-                if action=='wake' and current=='home' and not (process and process.poll() is None):navigate()
+                if action=='wake' and current in ('home','desktop') and not (process and process.poll() is None):navigate()
             elif action=='desktop-idle':SAVER.desktop(True)
             elif action=='desktop-active':SAVER.desktop(False)
             elif action=='heartbeat':
@@ -121,6 +133,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(busy,bool):raise ValueError('Invalid activity state.')
                 SAVER.voice(busy,data.get('wake_phrase'))
             elif action=='home': navigate()
+            elif action=='desktop':show_desktop()
             elif action=='open': navigate(data['url'])
             elif action in ('pause','resume'):
                 if current!='video': raise ValueError('Pause and resume apply to direct video files. Use the website controls for web videos.')
@@ -150,7 +163,7 @@ def main():
             time.sleep(2)
             with lock:
                 SAVER.tick(current=='video' and not video_paused)
-                if current!='home' and process and process.poll() is not None:
+                if current!='desktop' and process and process.poll() is not None:
                     try: navigate()
                     except Exception: pass
     threading.Thread(target=watch,daemon=True).start()

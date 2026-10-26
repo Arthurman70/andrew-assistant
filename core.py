@@ -163,6 +163,7 @@ class Andrew:
             self.db.execute('INSERT INTO jobs(id,kind,expires,status,payload) VALUES (?,?,?,?,?)',
                 (secrets.token_hex(16),'display',time.time()+30,'pending',json.dumps({'action':action,'url':url})))
         return {'home':'Requested closing the Pi browser and returning to my face.',
+                'desktop':'Requested showing the normal Pi desktop. Say go home to return to me.',
                 'open':'Requested opening that page on the Pi.',
                 'pause':'Requested pausing the Pi video.', 'resume':'Requested resuming the Pi video.'}[action]
 
@@ -352,7 +353,9 @@ class Andrew:
     def command(self, text, source='pc'):
         outer=not getattr(self.request,'command_depth',0)
         self.request.command_depth=getattr(self.request,'command_depth',0)+1
-        if outer:self.request.memory_deleted=False
+        if outer:
+            self.request.memory_deleted=False
+            self.request.pending_work=False
         try:
             answer=self._command(text,source)
             if outer and not getattr(self.request,'agent_internal',False) and not getattr(self.request,'action_internal',False) and not self.request.memory_deleted:

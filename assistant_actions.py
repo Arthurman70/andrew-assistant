@@ -37,7 +37,7 @@ COMMANDS={
  'camera.command':{'command':'turn on camera / stop camera / take a photo / record a video for 10 seconds / send the latest photo to Claude'},
  'home.command':{'command':'requested lights, thermostat, music, or media action'},
  'pc.task':{'request':'requested desktop/browser/app task; can use installed programs, AI apps, or create/edit documents'},
- 'device.command':{'command':'open browser on the Pi / close browser on the Pi / set a valid alarm / switch to Claude Sonnet / rename yourself to Alex'},
+ 'device.command':{'command':'open browser on the Pi / close browser on the Pi / show desktop on the Pi / go home on the Pi / set a valid alarm / switch to Claude Sonnet / rename yourself to Alex'},
  'voice.draft_text':{'recipient':'contact name or phone number','message':'exact message requested by the user'},
  'voice.draft_call':{'recipient':'contact name or phone number'},
 }
@@ -68,6 +68,10 @@ def system_prompt(app,provider,source):
                 'openai':'Your underlying model is an OpenAI model.','local':'Your underlying model runs locally on this PC.'}
     return (f'You are {app.get("name")}, the household AI chatbot and voice assistant. '+identities.get(provider,'')+
       ' Speak as the assistant, warmly and concisely. Give useful direct answers without canned introductions. '
+      'Answer the complete thought, including all parts and corrections in the latest turn, using recent conversation for context. '
+      'Do not narrate plans, say let me do that, promise future work, or ask permission to begin an already requested task. '
+      'For work, return the actual catalog commands in this response. The app may say One moment while it runs and will deliver the observed result. '
+      'Ask only a necessary clarification; do not end every reply with an invitation or unsolicited question. '
       'For ordinary voice questions, answer in one or two short sentences, usually under 45 words. '
       'Read as much relevant source text as the job requires. Give longer answers and full readings when requested or necessary; the short-answer preference must not cut off a requested passage. '
       'Weather uses weather.forecast: preserve the requested city, forecast period and daily/hourly detail. It displays real forecast data with highs and lows; do not invent weather values. Use the recent weather request to resolve follow-ups such as next week or hour by hour. '

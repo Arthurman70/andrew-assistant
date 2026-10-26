@@ -9,26 +9,40 @@ import atexit
 
 ROOT=Path(__file__).resolve().parent
 class NanoVoice:
-    def __init__(self):self.process=None;self.responses=queue.Queue();self.ready=threading.Event();atexit.register(self.close)
+    def __init__(self):self.process=None;self.responses=queue.Queue();self.ready=threading.Event();self.registered=False
     def close(self):
-        if self.process and self.process.poll() is None:self.process.kill()
+        process=self.process
+        if process:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+            for pipe in (process.stdin,process.stdout):
+                if pipe:
+                    try:pipe.close()
+                    except OSError:pass
         self.process=None
         self.ready.clear()
+        if self.registered:
+            atexit.unregister(self.close);self.registered=False
     def start(self):
         if self.process and self.process.poll() is None:return
+        if not self.registered:
+            atexit.register(self.close);self.registered=True
         self.responses=queue.Queue()
-        self.ready.clear()
+        self.ready=threading.Event()
         self.process=subprocess.Popen([str(ROOT/'runtime/chatterbox-env/Scripts/python.exe'),str(ROOT/'nano_voice_worker.py')],
             stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,encoding='utf-8',
             creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-        process=self.process;responses=self.responses
+        process=self.process;responses=self.responses;ready=self.ready
         def read():
-            for line in process.stdout:
-                try:value=json.loads(line)
-                except ValueError:continue
-                if value.get('ready'):self.ready.set()
-                else:responses.put(value)
-            responses.put(None)
+            try:
+                for line in process.stdout:
+                    try:value=json.loads(line)
+                    except ValueError:continue
+                    if value.get('ready'):ready.set()
+                    else:responses.put(value)
+            except (OSError,ValueError):pass  # Closing an idle worker can end its pipe reader.
+            finally:responses.put(None)
         threading.Thread(target=read,daemon=True).start()
     def synthesize(self,text):
         self.start()

@@ -366,6 +366,7 @@ class ImprovementManager:
                 'auto_install':auto_install is True,'repair_attempts':0})
             (path / 'request.txt').write_text(request, encoding='utf-8')
             self.thread = threading.Thread(target=self.generate, args=(path,request,provider,model), daemon=True)
+            self.app.request.pending_work=True
             self.thread.start()
         return (f'I am making that improvement with {entry["label"]}, {model or "the account default"}. '
                 +('I will test and install a small patch automatically, then report the result. Undo will be available.'

@@ -7,6 +7,10 @@ from pathlib import Path, PurePosixPath
 import re
 
 ROLES={
+ 'conversation_turns.py':'shared longer speech turn limits, empty/filler suppression and appropriate follow-up handoffs',
+ 'launcher.py':'independent Windows manual startup and recovery, service health checks, safe process matching and launch locking',
+ 'Start-Andrew.ps1':'Windows startup entry point, background and repair switches',
+ 'installers/Install-Shortcuts.ps1':'desktop and Start-menu launch and repair shortcuts',
  'alarm_audio.py':'private cinematic PCM conversion, built-in alarm chime, repeating device-bound alarm lifecycle',
  'speaker_player.py':'selected PC speaker playback, volume, cancellable alarm clips and speech pause/resume',
  'assets/alarms.js':'alarm sound picker, previews and originating-browser alarm playback',

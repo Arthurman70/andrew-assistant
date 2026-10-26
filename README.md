@@ -4,6 +4,12 @@ An open-source assistant with a Windows host, Raspberry Pi voice/screen satellit
 
 This is an early release, with timers, alarms, reminders, lists, named memories, optional speaker matching, games, model switching, camera requests, and bounded Windows browser tasks. Home Assistant can connect lights and thermostats. Device availability and account limits apply; full Alexa parity is not promised.
 
+## Starting and recovering Andrew
+
+Open **Andrew** on the Windows desktop or search for **Andrew** in the Start menu to turn the host on and open its app. This works even when the webpage is unavailable. The launcher waits until the server responds before opening the window, preserves error logs, and avoids duplicate services when clicked repeatedly.
+
+If the app is stuck, open **Repair Andrew** beside it. Repair starts missing services and restarts only an unresponsive Andrew server; a healthy server is left running. Saved settings, memories, account connections and code improvements are kept. Website bridging starts when configured, and a paired Pi reconnects automatically when reachable. Hardware, microphone permissions, missing dependencies or broken code may still require attention; startup failures stay visible with directions to the saved error log. These shortcuts do not require administrator access.
+
 ## Windows installation
 
 Download **Andrew-Windows.zip** from [Releases](https://github.com/Arthurman70/andrew-assistant/releases), extract it, and open **Install Andrew.cmd**, or run **Andrew-Setup.exe**. Python 3.12 installs for the current user if needed. Speech models download from original publishers and require several GB; rerun to resume downloads. Open the **Andrew** desktop shortcut for an app window.
@@ -14,7 +20,11 @@ Choose a microphone and speaker in Settings. Say **“Hey Andrew, what time is i
 
 Claude Haiku 5.5 is available in the model picker and by voice: **“use Claude Haiku 5.5”**, **“switch to Haiku five point five”**. Andrew uses the pinned model ID `claude-haiku-5-5` through the existing Claude subscription, with no API-key fallback. Install/update the official Claude Code client to **2.1.293 or later** for this model. Existing model choices stay unchanged until you select a different one.
 
-After a conversation reply finishes, PC/Pi listening stays open for **12 seconds** for one foreground follow-up without another wake phrase. A reply to that follow-up opens the next short window. Questions asked by a completed PC task also open this window. It respects microphone off, snooze, media/background checks and speaker identity; alerts do not start conversations. Settings → Follow-up listening can turn it off; End conversation closes the current window. Browser/mobile Talk remains explicit push-to-talk.
+PC/Pi requests can last up to **one minute**. Andrew allows **1.8 seconds of silence**, or **2.4 seconds after longer speech**, before deciding the thought is finished. An empty wake, filler-only turn or empty transcript returns quietly to idle. A real recognition failure after an addressed request still gives a short error rather than hiding a broken microphone or recognizer.
+
+After a conversation reply or a necessary question finishes, PC/Pi listening stays open for **12 seconds** for one clear foreground follow-up without another wake phrase. A follow-up needs sustained speech rather than a single click or breath. Media, sustained background chatter, microphone off, snooze and speaker identity remain guarded. Task acknowledgements, background completion notices, short device confirmations and goodbyes do not reopen listening. A long follow-up that starts within the window can finish its full minute. Settings → Follow-up listening can turn it off; End conversation closes the current window. Browser/mobile Talk remains explicit push-to-talk.
+
+Requested PC tasks start immediately, acknowledge with **“One moment”**, and deliver their actual result when finished. Model instructions require commands rather than promises to perform work and avoid unsolicited questions or repeated plan narration.
 
 Rename with **“Hey Andrew, I’ll call you Charlie”**, **“call yourself Alex”**, or **“change your name to Alex”**. The reply confirms the new **Hey + name** wake phrase; the name survives restarts. You can also use **Settings → Assistant name → Rename**. “My name is …” identifies the speaker and does not rename the assistant.
 
@@ -44,7 +54,7 @@ Select a daily card to see that day's hourly readings, or use Daily/Hourly tabs 
 
 During a reply, say **“shut up”**, **“stop talking”**, or **“be quiet”**. Say **“continue”** within two minutes to resume remaining speech. Quiet, Continue, and Stop reply buttons are available. A new request replaces a paused answer; resuming speech does not repeat actions. Detection uses local keywords and a foreground-volume check; room acoustics can still affect it.
 
-Browser/mobile speech uses pause/resume buttons. The microphone opens only after **Talk to Andrew** is tapped and closes after Finish request or 15 seconds. It does not listen continuously for interruption words.
+Browser/mobile speech uses pause/resume buttons. The microphone opens only after **Talk to Andrew** is tapped and closes after Finish request or one minute. It does not listen continuously for interruption words. Empty recordings do not produce a spoken reply.
 
 ## Raspberry Pi satellite
 
@@ -156,3 +166,5 @@ Long readings: Andrew can inspect document/app text in 12,000-character chunks a
 ### Pi desktop screensaver
 
 On the normal Pi desktop, Andrew shows a full-screen resting avatar and drifting clock after 15 minutes without desktop or conversation activity. The current wake phrase dismisses it locally before transcription or a provider response. Keyboard, mouse, and touchscreen input also dismiss it. Direct videos and ongoing replies keep the screen awake. Voice listening, timers, and alarms continue; the screensaver never accesses the microphone or camera itself. Desktop installations use the lightweight `swayidle` monitor.
+
+The Pi assistant opens full-screen. Use the **Desktop** button or say “show desktop” to use the normal Pi desktop, and “go home” to return. The desktop button works locally even when the host PC is unreachable.

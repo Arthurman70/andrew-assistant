@@ -1,5 +1,7 @@
 """Local Parakeet recognition and neural speech. PCM stays in memory."""
 import io
+import gc
+from contextlib import contextmanager
 from pathlib import Path
 import threading
 import time
@@ -8,12 +10,13 @@ import re
 from collections import OrderedDict
 import numpy as np
 from reading import MAX_TEXT,speech_chunks,combine_wavs
+from conversation_turns import MAX_AUDIO_SECONDS
 
 ROOT = Path(__file__).resolve().parent
 
 
 class SpeechEngine:
-    def __init__(self,voice_choice=None,recognition_choice=None,speed_choice=None):
+    def __init__(self,voice_choice=None,recognition_choice=None,speed_choice=None,idle_seconds=120):
         self.asr = None
         self.voice = None
         self.kokoro = None
@@ -23,26 +26,77 @@ class SpeechEngine:
         self.speed_choice=speed_choice or (lambda:1.0)
         self.asr_lock = threading.Lock()
         self.tts_lock = threading.Lock()
+        self.idle_seconds = max(1, float(idle_seconds))
+        self.last_used = {'recognition': time.monotonic(), 'voice': time.monotonic()}
         self.cache=OrderedDict();self.cache_bytes=0
-        self.status = {'recognition': 'loading', 'voice': 'loading', 'error': ''}
+        self.status = {'recognition': 'Sleeping · loads when needed',
+                       'voice': 'Sleeping · loads when needed', 'error': ''}
 
-    def warmup(self):
-        try:
-            if self.voice_choice()=='nano':
-                from nano_voice import NanoVoice
-                self.nano=NanoVoice();self.nano.start()
-            self.transcribe(bytes(16000*2), 'Andrew')
-            self.synthesize('Ready.')
-            for text in ('I missed the request. Please say my name and try again.',
-                         'One moment.', 'I can hear you. What would you like me to do?'):
-                self.synthesize(text)
-        except Exception as exc:
-            self.status['error'] = str(exc)[:200]
+    @contextmanager
+    def using(self, kind, lock):
+        # Unloading takes the same lock as inference, including model creation
+        # and iteration over a lazy Whisper result. Never free an active model.
+        with lock:
+            try:
+                yield
+            finally:
+                self.last_used[kind] = time.monotonic()
+
+    def snapshot(self):
+        # Status polling must neither load a model nor wait for inference.
+        nano = self.nano
+        return dict(self.status) | {
+            'recognition_loaded': self.asr is not None,
+            'voice_loaded': any(v is not None for v in (self.voice, self.kokoro, self.nano)),
+            'idle_unload_seconds': self.idle_seconds,
+            'cache_bytes': self.cache_bytes,
+            'expressive_ready': bool(nano and nano.ready.is_set())}
+
+    def unload_idle(self):
+        released = []
+        for kind, lock in (('recognition', self.asr_lock), ('voice', self.tts_lock)):
+            if not lock.acquire(blocking=False):
+                continue
+            try:
+                if time.monotonic() - self.last_used[kind] < self.idle_seconds:
+                    continue
+                if kind == 'recognition':
+                    loaded = self.asr is not None
+                    self.asr = None
+                    self.asr_kind = None
+                else:
+                    loaded = any(v is not None for v in (self.voice, self.kokoro, self.nano)) or bool(self.cache)
+                    if self.nano is not None:
+                        self.nano.close()
+                    self.voice = self.kokoro = self.nano = None
+                    self.cache.clear()
+                    self.cache_bytes = 0
+                self.status[kind] = 'Sleeping · loads when needed'
+                if loaded:
+                    released.append(kind)
+            finally:
+                lock.release()
+        if released:
+            gc.collect()
+        return released
+
+    def idle_worker(self, stop=None):
+        stop = stop or threading.Event()
+        while not stop.wait(5):
+            try:
+                self.unload_idle()
+            except Exception:
+                self.status['error'] = 'Idle speech cleanup will retry automatically.'
 
     def transcribe(self, pcm, name='Andrew'):
-        if len(pcm) % 2 or not 640 <= len(pcm) <= 16000*2*22:
-            raise ValueError('Expected at most 22 seconds of mono 16 kHz PCM audio.')
-        with self.asr_lock:
+        if len(pcm) % 2 or not 640 <= len(pcm) <= 16000*2*MAX_AUDIO_SECONDS:
+            raise ValueError(f'Expected at most {MAX_AUDIO_SECONDS} seconds of mono 16 kHz PCM audio.')
+        # Silence should not bring hundreds of MB of recognition weights into RAM.
+        audio = np.frombuffer(pcm, dtype='<i2').astype(np.float32) / 32768
+        peak = float(np.max(np.abs(audio)))
+        if peak < 0.001:
+            return ''
+        with self.using('recognition', self.asr_lock):
             choice=self.recognition_choice()
             model=ROOT/'runtime/speech/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8'
             if choice=='parakeet' and (model/'encoder.int8.onnx').exists():
@@ -60,10 +114,6 @@ class SpeechEngine:
                     device='cpu', compute_type='int8', cpu_threads=6, local_files_only=True)
                 self.status['recognition'] = 'Whisper small.en · local'
                 self.asr_kind='whisper'
-            audio = np.frombuffer(pcm, dtype='<i2').astype(np.float32) / 32768
-            peak = float(np.max(np.abs(audio)))
-            if peak < 0.001:
-                return ''
             # Gentle gain for quiet microphones, capped to avoid amplifying noise excessively.
             audio *= min(4.0, 0.8 / max(peak, 0.01))
             started=time.monotonic()
@@ -79,7 +129,7 @@ class SpeechEngine:
             return ' '.join(s.text.strip() for s in segments).strip()
 
     def synthesize(self, text):
-        with self.tts_lock:
+        with self.using('voice', self.tts_lock):
             text=spoken_text(str(text))
             if len(text)>MAX_TEXT:raise ValueError('Split readings longer than 32000 characters into parts.')
             selected=self.voice_choice()

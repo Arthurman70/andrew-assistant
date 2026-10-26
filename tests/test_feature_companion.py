@@ -103,10 +103,12 @@ class FollowupTests(unittest.TestCase):
         capture=self.capture();frame=np.full(320,300,dtype='<i2').tobytes()
         with patch('wake_capture.time.monotonic',return_value=100):capture.offer_followup('grant',12)
         with patch('wake_capture.time.monotonic',return_value=105):
-            capture.offer_followup('grant',12);self.assertEqual(capture.followup_until,112);capture.feed(frame,'Andrew');self.assertTrue(capture.active);self.assertEqual(capture.last_grant,'grant')
-        for _ in range(6):capture.feed(frame,'Andrew')
+            capture.offer_followup('grant',12);self.assertEqual(capture.followup_until,112)
+            for _ in range(5):capture.feed(frame,'Andrew')
+            self.assertTrue(capture.active);self.assertEqual(capture.last_grant,'grant')
+        for _ in range(7):capture.feed(frame,'Andrew')
         capture.command_vad.is_speech.return_value=False
-        for _ in range(35):self.assertIsNone(capture.feed(bytes(640),'Andrew'))
+        for _ in range(89):self.assertIsNone(capture.feed(bytes(640),'Andrew'))
         self.assertIsNotNone(capture.feed(bytes(640),'Andrew'))
     def test_background_media_does_not_start_followup_capture(self):
         capture=self.capture();capture.offer_followup('grant',12);capture.feed(np.full(320,300,dtype='<i2').tobytes(),'Andrew',media=True);self.assertFalse(capture.active)

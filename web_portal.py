@@ -109,7 +109,8 @@ class Handler(BaseHTTPRequestHandler):
     def session_cookie(self,token):
         return 'andrew_session='+token+'; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age='+str(SESSION_SECONDS)
 
-    def body(self,limit=1500000):
+    def body(self,limit=None):
+        if limit is None:limit=3_000_000 if self.path=='/api/browser-voice' else 1_500_000
         size=int(self.headers.get('Content-Length','0'))
         if not 0<size<=limit:raise ValueError('Request is too large or empty.')
         value=json.loads(self.rfile.read(size))

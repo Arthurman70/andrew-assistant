@@ -166,9 +166,10 @@ class PCAgent:
                         'task_id':secrets.token_hex(8),'scheduled':scheduled,'scheduled_task_id':getattr(self.app.request,'scheduled_task_id',None),
                         'source':source,'person':person,'provider':provider,'model':model or '',
                         'started_at':time.time(),'answer':''}
+            self.app.request.pending_work=True
             self.thread=threading.Thread(target=self.run,args=(text,source,context),daemon=True)
             self.thread.start()
-        return 'I am working on that on your PC. I will tell you when it is done or if I need a choice.'
+        return 'One moment.'
 
     def propose(self, history, model):
         if self.planner: return self.planner(SYSTEM,json.dumps(history),model)

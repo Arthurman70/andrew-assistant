@@ -43,6 +43,13 @@ class Screen(BaseHTTPRequestHandler):
         try:urllib.request.urlopen(request,timeout=1).close()
         except OSError:pass
 
+    def display_control(self,action):
+        request=urllib.request.Request('http://127.0.0.1:8771/',json.dumps({'action':action}).encode(),
+            {'Content-Type':'application/json','X-Andrew-Display':'1'})
+        try:
+            with urllib.request.urlopen(request,timeout=12) as response:return self.reply(200,json.load(response))
+        except OSError:return self.reply(503,{'error':'The display could not switch. Please try again.'})
+
     def valid(self):
         return self.headers.get('Host') in ('127.0.0.1:8770', 'localhost:8770') and self.headers.get('Origin', 'http://127.0.0.1:8770') in ('http://127.0.0.1:8770', 'http://localhost:8770')
 
@@ -76,9 +83,12 @@ class Screen(BaseHTTPRequestHandler):
             return self.reply(403, {'error': 'Local display only.'})
         try:
             length = int(self.headers.get('Content-Length', 0))
-            if not 1 <= length <= 8000 or self.path not in ('/api/command','/api/speech-control','/api/tasks','/api/alarm-sound','/api/alarm-preview','/api/screensaver'):
+            if not 1 <= length <= 8000 or self.path not in ('/api/command','/api/speech-control','/api/tasks','/api/alarm-sound','/api/alarm-preview','/api/screensaver','/api/display'):
                 raise ValueError()
             data = json.loads(self.rfile.read(length))
+            if self.path=='/api/display':
+                if data.get('action') not in ('desktop','home'):raise ValueError()
+                return self.display_control(data['action'])
             if self.path=='/api/screensaver':
                 if data.get('action')!='activity':raise ValueError()
                 self.display_activity()

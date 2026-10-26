@@ -25,6 +25,7 @@ from speaker_player import SpeakerPlayer
 from interruption import SpeechInterruption
 from followup import FollowupSessions
 from browser_companion import BrowserCompanion
+from conversation_turns import MAX_AUDIO_SECONDS, empty_utterance, followup_allowed
 
 APP = Andrew()
 FOLLOWUP=FollowupSessions(APP);APP.followup=FOLLOWUP
@@ -124,12 +125,15 @@ def voice_command(text, source, pc_speak=False):
         return {'accepted': False, 'answer': '', 'duplicate':True}
     try:
         with ResponseProgress(source):answer = APP.command(text, source)
+        if getattr(APP.request,'pending_work',False):answer='One moment.'
         if not isinstance(answer,str) or not answer.strip():
             answer='I could not finish that request. Please try again.'
-        if (not getattr(APP.request,'followup_context',False) and getattr(APP.request,'voice_context',False) and not APP.memory.current(source)
+        if (not getattr(APP.request,'followup_context',False) and not getattr(APP.request,'pending_work',False)
+                and followup_allowed(text,answer) and getattr(APP.request,'voice_context',False) and not APP.memory.current(source)
+                and re.fullmatch(r'(?:hello|hi|hey|good (?:morning|afternoon|evening))[.!? ]*',text,re.I)
                 and time.time()>APP.memory.prompted.get(source,0)
                 and not re.search(r'call|text|message|stop|cancel|snooze|guest',text,re.I)):
-            APP.memory.prompted[source]=time.time()+600
+            APP.memory.prompted[source]=time.time()+86400
             answer+=' What should I call you?'
     except ValueError as exc:
         answer = str(exc)
@@ -137,7 +141,8 @@ def voice_command(text, source, pc_speak=False):
         answer = 'That connection is not responding. Please try again. Your local commands still work.'
     silent=bool(getattr(APP.request,'speech_silent',False))
     if pc_speak and not silent:speak(answer)
-    return {'accepted': True, 'answer': answer,'silent':silent}
+    return {'accepted': True, 'answer': answer,'silent':silent,
+            'pending':bool(getattr(APP.request,'pending_work',False))}
 
 
 def audio_response(text, source, ticket=None, followup=None):
@@ -161,12 +166,13 @@ def pc_task_finished(answer, source):
     if INTERRUPT.active(source):return
     state=APP.pc_agent.status() if APP.pc_agent else {}
     person=state.get('person') if state.get('source')==source and time.time()-state.get('finished_at',0)<5 else APP.memory.current(source)
-    grant=FOLLOWUP.prepare(source,person)
+    grant=FOLLOWUP.prepare(source,person) if followup_allowed('',answer,notification=True) else None
+    if not grant:FOLLOWUP.close(source)
     if source=='pi':
         if time.time()-APP.relay_seen<20:
             encoded=base64.b64encode(voice_wav(answer)).decode()
             PI_AUDIO.put((time.time()+60,encoded,None,grant),timeout=10)
-        else:speak(answer,followup=FOLLOWUP.prepare('pc',person))
+        else:speak(answer)  # A disconnected room must not open another room's microphone.
     else:
         if APP.get('pc_speech'):speak(answer,followup=grant)
         elif grant:FOLLOWUP.arm('pc',grant)
@@ -227,15 +233,21 @@ def handle_audio(pcm, source, manual=False, captured_at=None,wake_detected=False
     ticket=INTERRUPT.ticket(source)
     started=time.monotonic()
     SESSIONS.update(source, phase='recognizing', error='')
+    def quiet(reason):
+        FOLLOWUP.close(source)
+        SESSIONS.update(source,phase='waiting for name',last_heard='',last_request='',
+            recognition_result=reason,response_seconds=round(time.monotonic()-started,3))
+        return {'accepted':False,'transcript':'','answer':'','silent':True,'no_speech':True}
     def retry(reason):
         if APP.snooze_remaining(source) or not APP.get(source+'_listening'):
             return {'accepted':False,'transcript':'','answer':'','sleeping':True}
         SESSIONS.update(source,phase='listening',last_heard='',last_request='',last_answer=RETRY_TEXT,
             answered_at=time.time(),recognition_result=reason,response_seconds=round(time.monotonic()-started,3))
         return {'accepted':False,'transcript':'','answer':RETRY_TEXT,'retry':True,**audio_response(RETRY_TEXT,source)}
-    if not pcm:return retry('no speech after wake')
+    if not pcm:return quiet('no speech after wake')
     try:text = ENGINE.transcribe(pcm, APP.get('name'))
-    except Exception:return retry('recognition failed')
+    except Exception:
+        return quiet('follow-up recognition failed') if continuation else retry('recognition failed')
     recognized=time.monotonic()
     if APP.snooze_remaining(source) or not APP.get(source+'_listening'):
         return {'accepted':False,'transcript':'','answer':'','sleeping':True}
@@ -243,12 +255,12 @@ def handle_audio(pcm, source, manual=False, captured_at=None,wake_detected=False
         SESSIONS.update(source,phase='listening')
         return {'accepted':False,'transcript':'','answer':'','echo_suppressed':True}
     SESSIONS.update(source, last_heard=text[:240], phase='listening')
-    if not text:
-        return retry('speech not understood')
+    if empty_utterance(text,bool(continuation)):
+        return quiet('no intelligible speech')
     # Capture already established the wake boundary. Keep names mentioned inside a request.
     command=re.sub(r'^(?:hey\s+)?'+re.escape(APP.get('name'))+r'\b[\s,.!?:;-]*','',text,flags=re.I).strip()
-    if not command:
-        return retry('wake name without request')
+    if empty_utterance(command,bool(continuation)):
+        return quiet('wake name without request')
     SESSIONS.update(source,phase='thinking',last_heard=command,last_request=command)
     APP.request.captured_at=end
     APP.memory.begin_voice(pcm,source,command)
@@ -268,7 +280,8 @@ def handle_audio(pcm, source, manual=False, captured_at=None,wake_detected=False
     if not result['accepted']: return result | {'transcript':text}
     SESSIONS.update(source,phase='speaking',last_answer=result['answer'],answered_at=time.time())
     if not result.get('silent'):
-        grant=FOLLOWUP.prepare(source,person)
+        grant=FOLLOWUP.prepare(source,person) if followup_allowed(command,result['answer'],result.get('pending',False)) else None
+        if not grant:FOLLOWUP.close(source)
         result.update(audio_response(result['answer'],source,ticket,grant))
     SESSIONS.update(source,phase='listening',recognition_result='understood',
         response_seconds=round(time.monotonic()-started,3),timing={
@@ -282,7 +295,14 @@ class CapturePlayback:
         return SPEAKING.is_set() or PLAYBACK.is_set()
 
 
-PC_VOICE = PCVoice(APP, handle_audio, CapturePlayback(),speech_control)
+def sleep_wake_notice():
+    SESSIONS.update('pc',phase='waiting for name',error='')
+    if APP.get('pc_speech'):
+        try:SPEECH.put_nowait((ENGINE.cue(),None,INTERRUPT.ticket('pc'),None))
+        except queue.Full:pass
+
+
+PC_VOICE = PCVoice(APP, handle_audio, CapturePlayback(),speech_control,sleep_wake_notice)
 
 
 def scheduler():
@@ -365,7 +385,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/status':
             return self.send(200, APP.status() | {'pc_listening': APP.get('pc_listening'),
                 'pc_voice': PC_VOICE.status(), 'voice_sessions':SESSIONS.snapshot(),'followup':FOLLOWUP.status(),'followup_enabled':APP.get('followup_enabled'),
-                'speech_engine':dict(ENGINE.status)|{'expressive_ready':bool(ENGINE.nano and ENGINE.nano.ready.is_set())},'pi_voice':dict(PI_HEALTH),
+                'speech_engine':ENGINE.snapshot(),'pi_voice':dict(PI_HEALTH),
                 'satellite':dict(SATELLITE.status),
                 'pc_task':APP.pc_agent.status(),'browser_companion':COMPANION.status(),
                 'improvements':IMPROVEMENTS.items(),
@@ -463,8 +483,10 @@ class Handler(BaseHTTPRequestHandler):
                 if self.path=='/api/browser-voice':
                     if data.get('activated') is not True:raise ValueError('Tap Talk before using the microphone.')
                     pcm=base64.b64decode(data.get('pcm',''),validate=True)
-                    if not 3200<=len(pcm)<=480000:raise ValueError('Record a request lasting under fifteen seconds.')
-                    text=ENGINE.transcribe(pcm)
+                    if len(pcm)%2 or len(pcm)>MAX_AUDIO_SECONDS*32000:raise ValueError('Record a request lasting under one minute.')
+                    text=ENGINE.transcribe(pcm,APP.get('name')) if len(pcm)>=640 else ''
+                    if empty_utterance(text):
+                        return self.send(200,{'transcript':'','answer':'','silent':True,'no_speech':True})
                 phrase=text.lower().strip().rstrip('.!?')
                 if phrase in ('shut up','stop talking','pause speaking','be quiet','continue','keep going','resume speaking'):
                     return self.send(200,{'transcript':text,'answer':'Speech paused.' if phrase not in ('continue','keep going','resume speaking') else 'Continuing.','speech_action':'resume' if phrase in ('continue','keep going','resume speaking') else 'pause'})
@@ -657,7 +679,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     IMPROVEMENTS.recover_interrupted()
-    threading.Thread(target=ENGINE.warmup, daemon=True).start()
+    threading.Thread(target=ENGINE.idle_worker, daemon=True).start()
     threading.Thread(target=speech_worker, daemon=True).start()
     threading.Thread(target=PC_VOICE.run, daemon=True).start()
     threading.Thread(target=scheduler, daemon=True).start()

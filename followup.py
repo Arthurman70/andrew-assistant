@@ -2,6 +2,7 @@
 import secrets
 import threading
 import time
+from conversation_turns import MAX_CAPTURE_SECONDS
 
 class FollowupSessions:
     def __init__(self,app,clock=time.monotonic):
@@ -19,7 +20,7 @@ class FollowupSessions:
         with self.lock:
             entry=self.sessions.get(source)
             if not entry or entry['grant']!=grant or entry['armed']:return False
-            entry.update(armed=True,ready_at=self.clock()+.35,until=self.clock()+.35+entry['seconds'])
+            entry.update(armed=True,ready_at=self.clock()+.65,until=self.clock()+.65+entry['seconds'])
             return True
     def view(self,source):
         if not self.enabled(source):self.close(source);return {'active':False,'remaining':0}
@@ -34,7 +35,7 @@ class FollowupSessions:
             entry=self.sessions.get(source)
             # The capture must start in the displayed window. An authenticated
             # satellite may finish its bounded utterance just after it expires.
-            if not entry or not entry['armed'] or entry['grant']!=grant or not entry['ready_at']<=self.clock()<=entry['until']+20:return None
+            if not entry or not entry['armed'] or entry['grant']!=grant or not entry['ready_at']<=self.clock()<=entry['until']+MAX_CAPTURE_SECONDS+5:return None
             self.sessions.pop(source,None)
             return dict(entry)
     def close(self,source):

@@ -5,6 +5,7 @@ import time
 import webrtcvad
 from wake_detector import WakeDetector
 from background_guard import BackgroundGuard
+from conversation_turns import MAX_CAPTURE_SECONDS, MIN_COMMAND_FRAMES, end_silence_frames
 
 
 class WakeCapture:
@@ -24,38 +25,74 @@ class WakeCapture:
         self.silence=self.voiced=self.frames=0
         self.threshold=30
         self.followup_until=0;self.followup_grant=None;self.last_grant=None;self.activation='wake'
+        self.sleep_only=False
+        self.followup_start=deque(maxlen=10)
+        self.followup_voiced=0
+        self.followup_floor=35
+        self.used_grants=deque(maxlen=8)
 
     def offer_followup(self,grant,seconds):
+        if not grant or grant in self.used_grants:return
         if grant!=self.followup_grant:
             self.followup_grant=grant;self.followup_until=time.monotonic()+max(0,seconds)
+            self.followup_floor=self.background.command_floor()
 
     def close_followup(self):
         self.followup_grant=None;self.followup_until=0
+        self.followup_start.clear();self.followup_voiced=0
 
     def reset(self):
         self.detector.reset();self.context.clear();self.request.clear()
         self.active=False;self.phase='waiting for name'
         self.silence=self.voiced=self.frames=0
+        self.followup_start.clear();self.followup_voiced=0
+
+    def set_sleeping(self, sleeping, name):
+        if sleeping != self.sleep_only or name != self.detector.name:
+            self.detector.configure(name,sleep_only=sleeping)
+            self.sleep_only=sleeping
+            self.reset();self.close_followup();self.last_grant=None
+            self.cooldown=0
+
+    def feed_sleeping(self, frame, name, mode='adaptive', media=False):
+        # Only the complete wake-up phrase is decoded while snoozed. No command
+        # buffer, follow-up grant, transcript or speech model is used here.
+        self.set_sleeping(True,name)
+        values=np.frombuffer(frame,dtype='<i2').astype(np.float32)
+        rms=float(np.sqrt(np.mean(values*values)))
+        self.background.observe(rms,self.vad.is_speech(frame,16000) and rms>=30)
+        self.phase='sleeping · say '+name+', wake up'
+        if self.cooldown:
+            self.cooldown-=1
+            return False
+        if self.detector.accept(frame) is None:
+            return False
+        accepted=self.background.accepts_wake(media,mode)
+        self.reset();self.cooldown=75
+        if not accepted:self.rejected_wakes+=1
+        return accepted
 
     def feed(self,frame,name,mode='adaptive',media=False):
-        if name!=self.detector.name:
-            self.detector.configure(name);self.reset()
+        self.set_sleeping(False,name)
         values=np.frombuffer(frame,dtype='<i2').astype(np.float32)
         rms=float(np.sqrt(np.mean(values*values)))
         if not self.active:
             speech=self.vad.is_speech(frame,16000) and rms>=30
-            followup_floor=self.background.command_floor()
             self.background.observe(rms,speech)
             self.cautious=self.background.cautious(media,mode)
             if self.cooldown:
                 self.cooldown-=1
                 return None
             if self.followup_grant and self.followup_until>time.monotonic() and not media:
-                floor=followup_floor
-                if self.command_vad.is_speech(frame,16000) and rms>=max(35,floor*(2.2 if mode=='strict' else 1.5)):
-                    self.request.clear();self.request.extend(frame)
+                floor=self.followup_floor
+                foreground=self.command_vad.is_speech(frame,16000) and rms>=max(40,floor*(2.2 if mode=='strict' else 1.7))
+                self.followup_start.append(frame)
+                self.followup_voiced=self.followup_voiced+1 if foreground else 0
+                if self.followup_voiced>=5 and self.background.accepts_followup(rms,mode):
+                    self.request.clear();self.request.extend(b''.join(self.followup_start))
                     self.active=True;self.activation='followup';self.last_grant=self.followup_grant
-                    self.phase='follow-up listening';self.threshold=floor;self.frames=1;self.voiced=1;self.silence=0
+                    self.used_grants.append(self.followup_grant)
+                    self.phase='follow-up listening';self.threshold=floor;self.frames=len(self.followup_start);self.voiced=5;self.silence=0
                     self.close_followup();self.context.clear();return None
                 self.phase='follow-up listening'
             else:
@@ -88,17 +125,19 @@ class WakeCapture:
                 if self.command_vad.is_speech(kept,16000) and float(np.sqrt(np.mean(level*level)))>=self.threshold:
                     self.voiced+=1
             return None
+        if self.activation=='followup' and media:
+            self.reset();self.close_followup();return None
         if self.activation=='followup' and self.detector.accept(frame) is not None:
             self.activation='wake';self.last_grant=None
         self.request.extend(frame);self.frames+=1
         speech=self.command_vad.is_speech(frame,16000) and rms>=self.threshold
         self.voiced+=int(speech);self.silence=0 if speech else self.silence+1
         # Allow a natural pause between a verb and its object, or two commands.
-        if self.voiced>=6 and (self.silence>=36 or self.frames>=900):
+        if self.voiced>=MIN_COMMAND_FRAMES and (self.silence>=end_silence_frames(self.voiced) or len(self.request)>=MAX_CAPTURE_SECONDS*32000):
             result=bytes(self.request)
             self.reset()
             return result
-        if self.frames>=250 and self.voiced<6:
+        if self.frames>=250 and self.voiced<MIN_COMMAND_FRAMES:
             self.background.missed_request();self.empty_wakes+=1
             self.reset();self.cooldown=25
             # No request followed the wake. Return quietly to idle instead of

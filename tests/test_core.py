@@ -150,6 +150,17 @@ class CoreTests(unittest.TestCase):
         with self.app.db: self.app.db.execute('UPDATE jobs SET expires=0')
         with self.assertRaises(ValueError): self.app.complete_job(job['id'])
 
+    def test_pi_desktop_and_return_commands_do_not_require_a_model(self):
+        import json
+        self.app.relay_seen=time.time()
+        with patch.object(self.app,'ai',side_effect=AssertionError('Desktop controls are local')):
+            for text,source,action in [('show desktop','pi','desktop'),('show the Pi desktop','pc','desktop'),
+                                       ('return to Andrew','pi','home'),('go home on the Pi','pc','home')]:
+                with self.subTest(text=text):
+                    self.app.command(text,source=source)
+                    job=self.app.job()['job'];self.assertEqual(json.loads(job['payload'])['action'],action)
+                    self.app.complete_job(job['id'])
+
     def test_home_requires_setup_and_does_not_fall_through_to_ai(self):
         with patch.object(self.app, 'ai', side_effect=AssertionError('No AI')):
             self.assertIn('No device action', self.app.command('turn on kitchen lights'))

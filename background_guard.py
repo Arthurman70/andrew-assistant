@@ -41,6 +41,17 @@ class BackgroundGuard:
         levels=sorted(r for r,_ in (rows[:-75] or rows))
         return max(25,min(300,levels[int((len(levels)-1)*.2)]*1.3))
 
+    def accepts_followup(self, rms, mode='adaptive'):
+        # During sustained room chatter require a voice that stands out. This is
+        # numerical acoustic context only; background speech is never decoded.
+        rows=list(self.recent)
+        if len(rows)<100:return rms>=40
+        recent=rows[:-10] or rows
+        speech=[r for r,s in recent if s]
+        if len(speech)/len(recent)<.45:return True
+        ambient=sorted(speech)[len(speech)//2]
+        return rms>=max(60,ambient*(2.2 if mode=='strict' else 1.8))
+
     def missed_request(self):
         self.failures.append(self.frames)
         if sum(self.frames-at<3000 for at in self.failures)>=3:

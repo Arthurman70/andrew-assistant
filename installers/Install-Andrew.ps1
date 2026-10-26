@@ -47,8 +47,6 @@ if (-not $SkipModels) {
         if ($LASTEXITCODE -ne 0) { throw 'Recognition-model download failed; rerun to continue.' }
     } finally { Pop-Location }
 }
-$shell=New-Object -ComObject WScript.Shell
-$shortcut=$shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) 'Andrew.lnk'))
-$shortcut.TargetPath='powershell.exe';$shortcut.Arguments='-NoProfile -ExecutionPolicy Bypass -File "'+(Join-Path $Destination 'Start-Andrew.ps1')+'"';$shortcut.WorkingDirectory=$Destination;$shortcut.Save()
+& (Join-Path $Destination 'installers/Install-Shortcuts.ps1') -AndrewRoot $Destination
 Write-Host 'Andrew installed. Open the desktop shortcut. Use Connections to select a signed-in AI account.'
 

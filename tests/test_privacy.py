@@ -10,7 +10,7 @@ from local_commands import web_url
 class PrivacyTests(unittest.TestCase):
     def test_server_never_transcribes_audio_without_wake_gate(self):
         import server
-        with patch.object(server.ENGINE,'transcribe',side_effect=AssertionError('Background transcription')):
+        with patch.object(server.APP,'snooze_remaining',return_value=0),patch.object(server.APP,'get',return_value=True),patch.object(server.ENGINE,'transcribe',side_effect=AssertionError('Background transcription')):
             for source in ('pc','pi'):
                 result=server.handle_audio(bytes(32000),source)
                 self.assertFalse(result['accepted'])

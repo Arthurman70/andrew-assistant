@@ -20,6 +20,7 @@ SOURCES=[('pi/agent.py','agent.py'),('pi/activate-agent.sh','activate-agent.sh')
          ('pi/screen.py','screen.py'),('pi/screen.html','screen.html'),
          ('pi/screensaver.py','screensaver.py'),('pi/screensaver.html','screensaver.html'),
          ('wake_detector.py','wake_detector.py'),('wake_capture.py','wake_capture.py'),
+         ('conversation_turns.py','conversation_turns.py'),
          ('background_guard.py','background_guard.py'),('audio_utils.py','audio_utils.py'),
          ('voice_tuning.py','voice_tuning.py'),('wake_tuning.json','wake_tuning.json'),
          ('interruption.py','interruption.py'),

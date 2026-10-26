@@ -63,7 +63,9 @@ def catalog(force=False):
 
 def resolve(app, provider=None, model=None):
     provider = provider or app.get('provider')
-    provider = {'open ai':'openai','chatgpt':'openai','chat gpt':'openai','on this pc':'local'}.get(provider.lower(),provider.lower())
+    spoken = re.sub(r'[^a-z0-9]+',' ',provider.lower()).strip()
+    spoken = re.sub(r'^(my|the)\s+','',spoken)
+    provider = {'open ai':'openai','chatgpt':'openai','chat gpt':'openai','on this pc':'local','grok bot':'grok','grock':'grok','grock bot':'grok','grokbot':'grok','grockbot':'grok'}.get(spoken,spoken)
     entry = next((p for p in catalog() if p['id']==provider),None)
     if not entry: raise ValueError('Choose Local, OpenAI, Claude, or Grok.')
     if not entry['ready'] and entry.get('retryable'):
@@ -80,8 +82,12 @@ def resolve(app, provider=None, model=None):
             for word, digit in {'zero':'0','one':'1','two':'2','three':'3','four':'4','five':'5','six':'6','seven':'7','eight':'8','nine':'9'}.items():
                 value = re.sub(r'\b'+word+r'\b',digit,value.lower())
             return re.sub(r'[^a-z0-9]','',value.lower())
-        target = spoken_key(model)
-        if provider=='grok' and model in ('fast','fast model'):
+        phrase = re.sub(r'^(my|the)\s+','',model.lower().strip())
+        target = spoken_key(phrase)
+        if provider=='grok' and target in ('grok','grokbot','grock','grockbot'):
+            model = ''
+            target = ''
+        elif provider=='grok' and phrase in ('fast','fast model'):
             target=spoken_key('grok-4.7-build-fast')
         equivalent = next((m['id'] for m in entry['models'] if target in (spoken_key(m['id']),spoken_key(m['label']))),None)
         if equivalent is not None: model = equivalent

@@ -12,28 +12,33 @@ def wake_phrase(name):
     return 'Hey '+name.strip()
 
 
+def sleep_wake_phrases(name):
+    return (name.strip()+' wake up', 'Hey '+name.strip()+' wake up')
+
+
 class WakeDetector:
     def __init__(self,directory,name='Andrew'):
-        self.directory=Path(directory);self.name=None
+        self.directory=Path(directory);self.name=None;self.sleep_only=False
         self.activity=webrtcvad.Vad(2)
         self.configure(name)
 
-    def configure(self,name):
-        if self.name==name: return
+    def configure(self,name,sleep_only=False):
+        if self.name==name and self.sleep_only==sleep_only: return
         processor=spm.SentencePieceProcessor(model_file=str(self.directory/'bpe.model'))
         # Spot the entire address, not a name mentioned in another conversation.
-        tokens=' '.join(processor.encode(wake_phrase(name).upper(),out_type=str))
+        phrases=sleep_wake_phrases(name) if sleep_only else (wake_phrase(name),)
         tuning=load_tuning()
         score=tuning['keyword_score'];threshold=tuning['keyword_threshold']
-        key=hashlib.sha256(f'hey-address-v3:{name}:{score}:{threshold}'.encode()).hexdigest()[:10]
+        key=hashlib.sha256(f'hey-address-v4:{name}:{sleep_only}:{score}:{threshold}'.encode()).hexdigest()[:10]
         keywords=self.directory/('keyword-'+key+'.txt')
-        keywords.write_text(f'{tokens} :{score} #{threshold} @WAKE\n',encoding='utf-8')
+        keywords.write_text(''.join(' '.join(processor.encode(phrase.upper(),out_type=str))+
+            f' :{score} #{threshold} @WAKE\n' for phrase in phrases),encoding='utf-8')
         self.spotter=sherpa_onnx.KeywordSpotter(tokens=str(self.directory/'tokens.txt'),
             encoder=str(next(self.directory.glob('encoder*.int8.onnx'))),
             decoder=str(next(self.directory.glob('decoder*.int8.onnx'))),
             joiner=str(next(self.directory.glob('joiner*.int8.onnx'))),
             keywords_file=str(keywords),num_threads=1,num_trailing_blanks=1)
-        self.name=name;self.reset()
+        self.name=name;self.sleep_only=sleep_only;self.reset()
 
     def reset(self):
         self.stream=self.spotter.create_stream();self.samples=0

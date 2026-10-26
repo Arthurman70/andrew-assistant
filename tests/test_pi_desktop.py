@@ -22,12 +22,18 @@ class DesktopDisplayTests(unittest.TestCase):
             self.display.navigate(url)
             return spawn.call_args.args[0]
 
-    def test_desktop_avatar_has_a_closable_window_without_another_compositor(self):
+    def test_assistant_is_fullscreen_without_taking_over_the_desktop_compositor(self):
         args=self.open(self.display.HOME_URL,True)
         self.assertEqual(args[0],'chromium')
-        self.assertIn('--app='+self.display.HOME_URL,args)
-        self.assertNotIn('--kiosk',args);self.assertNotIn('cage',args)
+        self.assertIn('--kiosk',args);self.assertNotIn('cage',args)
         self.assertIn('--user-data-dir=/run/andrew/browser-profile',args)
+
+    def test_desktop_button_closes_only_the_assistant_and_sets_desktop_mode(self):
+        self.display.DESKTOP=True;self.display.process=self.fake
+        with patch.object(self.display,'stop_display') as stop:
+            self.display.show_desktop()
+        stop.assert_called_once();self.assertEqual(self.display.current,'desktop')
+        self.assertIsNone(self.display.process);self.assertTrue(self.display.status()['desktop_available'])
 
     def test_desktop_web_navigation_keeps_normal_browser_controls(self):
         args=self.open('https://example.org/',True)

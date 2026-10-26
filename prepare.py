@@ -60,6 +60,7 @@ def main():
     for source, destination, mode in [('pi/agent.py', '/opt/andrew/agent.py', '0644'),
             ('wake_detector.py','/opt/andrew/wake_detector.py','0644'),
             ('wake_capture.py','/opt/andrew/wake_capture.py','0644'),
+            ('conversation_turns.py','/opt/andrew/conversation_turns.py','0644'),
             ('background_guard.py','/opt/andrew/background_guard.py','0644'),
             ('voice_tuning.py','/opt/andrew/voice_tuning.py','0644'),
             ('wake_tuning.json','/opt/andrew/wake_tuning.json','0644'),

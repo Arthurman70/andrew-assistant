@@ -51,7 +51,12 @@ def route(app, text, source):
     if low in ('stop listening', 'pause listening', 'turn off your microphone'):
         app.set(target+'_listening',False)
         return f'My {target.upper()} microphone is paused. Use the screen to enable it again.'
-    if low in ('close browser','close the browser','close video','close the video','stop video','go home','show your face','show the clock'):
+    if low in ('show pi desktop','show the pi desktop','open pi desktop','open the pi desktop'):
+        return app.display_job('desktop')
+    if low in ('show desktop','show the desktop','open desktop','open the desktop','use the desktop') and target=='pi':
+        return app.display_job('desktop')
+    name=str(app.get('name') or 'Andrew').lower()
+    if low in ('close browser','close the browser','close video','close the video','stop video','go home','show your face','show the clock','return to the assistant','return to '+name,'show '+name):
         if target=='pi': return app.display_job('home')
         return None  # Let the PC controller close a PC browser when requested.
     if low in ('pause video','pause the video','resume video','resume the video') and target=='pi':
