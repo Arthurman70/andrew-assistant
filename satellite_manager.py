@@ -5,6 +5,7 @@ import ipaddress
 import json
 import os
 import shutil
+import shlex
 from pathlib import Path
 import subprocess
 import tarfile
@@ -55,6 +56,16 @@ class SatelliteManager:
         try:return json.loads((ROOT/'data/satellite-pairing.json').read_text(encoding='utf-8'))
         except (OSError,ValueError):return {}
 
+    def remember_address(self,address):
+        try:
+            if not ipaddress.ip_address(address).is_private:return
+        except ValueError:return
+        path=ROOT/'data/satellite-address.json'
+        try:
+            if json.loads(path.read_text()).get('address')==address:return
+        except (OSError,ValueError):pass
+        path.write_text(json.dumps({'address':address}),encoding='utf-8')
+
     def ssh(self, address, command, payload=None, timeout=15):
         pairing=self.pairing()
         alias=pairing.get('host_alias')
@@ -88,7 +99,7 @@ class SatelliteManager:
         self.ssh(address, 'tar -xf - -C /run/andrew', bundle.getvalue(), timeout=60)
         self.ssh(address, 'sudo systemctl stop andrew-relay; sudo bash /run/andrew/prepare-voice-ram.sh && tar -xzf /run/andrew/python-bundle.tar.gz -C /run/andrew/python',timeout=60)
         self.ssh(address, 'sudo bash /run/andrew/activate-agent.sh', timeout=25)
-        (ROOT/'data/satellite-address.json').write_text(json.dumps({'address':address}), encoding='utf-8')
+        self.remember_address(address)
         self.status.update(state='ready', error='')
         self.status.update(update_queued=False,installed_version=deployment_version())
         (ROOT/'data/pi-update-queued.json').unlink(missing_ok=True)
@@ -103,6 +114,7 @@ class SatelliteManager:
             content=deployment_version().encode();item=tarfile.TarInfo('deployment-version.txt');item.size=len(content);archive.addfile(item,io.BytesIO(content))
         self.ssh(address,'mkdir -p /opt/andrew/assets && tar -xf - -C /opt/andrew',bundle.getvalue(),timeout=30)
         self.ssh(address,'sudo systemctl restart andrew-relay andrew-screen andrew-display',timeout=30)
+        self.remember_address(address)
         self.status.update(state='ready',error='',update_queued=False,installed_version=deployment_version())
         (ROOT/'data/pi-update-queued.json').unlink(missing_ok=True)
 
@@ -118,12 +130,36 @@ class SatelliteManager:
         self.ssh(address,'sudo bash /run/andrew/activate-display.sh',timeout=30)
         self.status.update(display='ready')
 
+    def reconcile(self,address,version):
+        """Missing heartbeats do not mean running Pi software needs reinstalling."""
+        base='/opt/andrew' if self.pairing().get('mode')=='writable' else '/run/andrew'
+        probe="""import json,pathlib,subprocess
+p=pathlib.Path(BASE)/'deployment-version.txt'
+services={name:subprocess.run(['systemctl','is-active','andrew-'+name],capture_output=True,text=True,timeout=5).stdout.strip() for name in ('relay','screen','display')}
+print(json.dumps(dict(version=p.read_text().strip() if p.exists() else '',services=services)))
+""".replace('BASE',repr(base))
+        reply=self.ssh(address,'python3 -c '+shlex.quote(probe),timeout=20)
+        installed=json.loads(reply.stdout)
+        if installed.get('version')!=version:
+            self.restore(address)
+            self.restore_display(address)
+            return
+        services=installed.get('services',{})
+        stopped=[name for name in ('relay','screen','display') if services.get(name) in ('inactive','failed')]
+        if stopped:
+            # start is idempotent; an active microphone/display is left running.
+            self.ssh(address,'sudo systemctl start '+' '.join('andrew-'+name for name in stopped),timeout=30)
+        self.status.update(state='waiting',installed_version=version,
+                           error='Pi services are running; waiting for the PC connection.')
+        if services.get('display')=='active':self.status.update(display='ready')
+
     def run(self):
         time.sleep(8)
         while True:
             version = deployment_version()
             if self.health.get('version') == version and time.time()-self.health.get('seen',0)<25:
                 self.status.update(state='ready',error='',update_queued=False,installed_version=version)
+                self.remember_address(self.health.get('ip',''))
                 (ROOT/'data/pi-update-queued.json').unlink(missing_ok=True)
                 if self.health.get('display',{}).get('running'):
                     self.status.update(display='ready')
@@ -140,10 +176,8 @@ class SatelliteManager:
                 except (OSError,ValueError,KeyError): pass
                 for address in dict.fromkeys(candidates):
                     try:
-                        self.restore(address)
-                        try: self.restore_display(address)
-                        except (OSError,subprocess.SubprocessError): self.status.update(display='waiting')
+                        self.reconcile(address,version)
                         break
-                    except (OSError,subprocess.SubprocessError):
+                    except (OSError,ValueError,subprocess.SubprocessError):
                         self.status.update(state='waiting',error='Waiting for the paired Pi to reconnect.')
             self.update_requested.wait(30);self.update_requested.clear()

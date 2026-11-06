@@ -162,5 +162,7 @@
   "web/password.html",
   "web/sw.js",
   "web/widget.js",
-  "tests/test_speech_memory.py"
+  "tests/test_speech_memory.py",
+  "tests/test_satellite_manager.py",
+  "tests/test_pi_delivery.py"
 ]

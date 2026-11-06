@@ -62,6 +62,15 @@ def voice_wav(text):
         return fallback.read_bytes() if fallback.is_file() else ENGINE.cue()
 
 
+def queue_pi_speech(text,seconds=60,ticket=None,followup=None):
+    if ticket and ticket.is_set():return
+    encoded=base64.b64encode(voice_wav(text)).decode()
+    if ticket and ticket.is_set():return
+    # A cold local voice may take longer than the delivery window to load.
+    # Expiry starts when audio is ready, never before synthesis begins.
+    PI_AUDIO.put((time.time()+seconds,encoded,ticket,followup),timeout=10)
+
+
 def speak(text, followup=None):
     if APP.get('pc_speech'):
         queue_speech(str(text),followup=followup)
@@ -170,8 +179,7 @@ def pc_task_finished(answer, source):
     if not grant:FOLLOWUP.close(source)
     if source=='pi':
         if time.time()-APP.relay_seen<20:
-            encoded=base64.b64encode(voice_wav(answer)).decode()
-            PI_AUDIO.put((time.time()+60,encoded,None,grant),timeout=10)
+            queue_pi_speech(answer,followup=grant)
         else:speak(answer)  # A disconnected room must not open another room's microphone.
     else:
         if APP.get('pc_speech'):speak(answer,followup=grant)
@@ -192,7 +200,7 @@ def scheduled_task_finished(answer,source):
         try:BROWSER_AUDIO.put_nowait({'answer':answer,'at':time.time()})
         except queue.Full:pass
     elif source=='pi' and time.time()-APP.relay_seen<20:
-        PI_AUDIO.put((time.time()+60,base64.b64encode(voice_wav(answer)).decode()),timeout=10)
+        queue_pi_speech(answer)
     elif APP.get('pc_speech'):speak(answer)
 
 APP.tasks.notify=scheduled_task_finished
@@ -312,7 +320,7 @@ def scheduler():
             if message.get('kind')=='alarm':continue  # Repeating clips are dispatched independently of TTS.
             if message['source'] == 'pi' and time.time()-APP.relay_seen < 20:
                 try:
-                    PI_AUDIO.put((time.time()+30,base64.b64encode(voice_wav(message['text'])).decode()),timeout=10)
+                    queue_pi_speech(message['text'],seconds=30)
                 except queue.Full: speak(message['text'])
             else: speak(message['text'])
         time.sleep(0.5)
@@ -559,7 +567,7 @@ class Handler(BaseHTTPRequestHandler):
                 text = f'Hello. I am {APP.get("name")}. This is the {"Raspberry Pi" if source=="pi" else "PC"} speaker.'
                 if source == 'pc':queue_speech(text)
                 elif source == 'pi':
-                    PI_AUDIO.put((time.time()+30,base64.b64encode(voice_wav(text)).decode()),timeout=10)
+                    queue_pi_speech(text,seconds=30)
                 else: raise ValueError('Choose PC or Pi.')
                 return self.send(200,{'ok':True})
             if self.path == '/api/provider' and self.trusted_local():
@@ -602,7 +610,7 @@ class Handler(BaseHTTPRequestHandler):
                         grant=FOLLOWUP.prepare('pc',APP.memory.current('pc'))
                         if APP.get('pc_speech'):queue_speech(answer,followup=grant)
                         elif grant:FOLLOWUP.arm('pc',grant)
-                    else: PI_AUDIO.put((time.time()+60,base64.b64encode(voice_wav(answer)).decode()),timeout=10)
+                    else: queue_pi_speech(answer,ticket=ticket)
                 return self.send(200, {'answer': answer})
             if self.path == '/api/photo':
                 APP.accept_photo(data['job_id'], base64.b64decode(data['jpeg'], validate=True))

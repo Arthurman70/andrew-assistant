@@ -159,7 +159,10 @@ class Schedule:
 
     def modify(self,selector,kind,action,source,value=None,scope=None):
         with self.app.lock:
-            return self._modify(selector,kind,action,source,value,scope)
+            answer=self._modify(selector,kind,action,source,value,scope)
+        # Sound preparation must not keep every request waiting on the database.
+        if getattr(self.app,'alarm_audio',None):self.app.alarm_audio.sync()
+        return answer
 
     def _modify(self,selector,kind,action,source,value=None,scope=None):
         ringing=action=='dismiss'
@@ -232,7 +235,6 @@ class Schedule:
             actual=self.app.db.execute('SELECT status FROM timers WHERE id=?',(row['id'],)).fetchone()
             if not actual or actual['status'] not in LIVE:return label+' was already cancelled. Nothing changed.'
             self.app.db.execute('UPDATE timers SET '+','.join(k+'=?' for k in updates)+' WHERE id=?',(*updates.values(),row['id']))
-        if getattr(self.app,'alarm_audio',None):self.app.alarm_audio.sync()
         return answer
 
     def route(self,text,source):

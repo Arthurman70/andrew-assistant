@@ -128,7 +128,8 @@ class ScreenSaver:
                 with (self.runtime / 'screensaver.log').open('ab', buffering=0) as log:
                     self.process = subprocess.Popen(['chromium', '--ozone-platform=wayland', '--kiosk',
                         '--no-first-run', '--disable-session-crashed-bubble', '--disable-extensions',
-                        '--disable-background-networking', '--password-store=basic', '--disk-cache-size=1048576',
+                        '--disable-background-networking', '--disable-component-update',
+                        '--password-store=basic', '--disk-cache-size=1048576',
                         '--user-data-dir=' + str(profile), 'http://127.0.0.1:8770/screensaver'],
                         stdout=log, stderr=log, start_new_session=True)
                 self.error = ''

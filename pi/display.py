@@ -81,6 +81,7 @@ def navigate(url=HOME_URL):
                  '--input-ipc-server=/run/andrew/mpv.sock',url] if media else
             ['chromium','--ozone-platform=wayland']+(['--kiosk'] if url==HOME_URL or not DESKTOP else ['--new-window'])+['--no-first-run','--disable-session-crashed-bubble',
              '--autoplay-policy=no-user-gesture-required','--password-store=basic',
+             '--disable-component-update',
              '--disk-cache-size=20971520','--user-data-dir=/run/andrew/browser-profile',url])
         with open(RUNTIME/'display.log','ab',buffering=0) as output:
             process=subprocess.Popen(player if DESKTOP else ['cage','-d','--']+player,stdout=output,stderr=output,start_new_session=True)

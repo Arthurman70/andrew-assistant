@@ -141,7 +141,10 @@ class AlarmAudio:
 
     def status(self):
         self.sync()
-        with self.lock:return {'selected':self.app.get('alarm_sound') or 'builtin','label':self.label,'error':self.error,'revision':self.cache[2],
+        # Timer edits hold the database lock before synchronizing alarm audio.
+        # Never acquire that lock while holding the audio lock in the opposite order.
+        selected=self.app.get('alarm_sound') or 'builtin'
+        with self.lock:return {'selected':selected,'label':self.label,'error':self.error,'revision':self.cache[2],
             'devices':{s:{'key':f['key'],'alarms':list(f['alarms'])} for s,f in self.frames.items()}}
 
     def tick(self):

@@ -23,6 +23,61 @@ class AlarmTests(unittest.TestCase):
     def alarm(self,source='pc'):
         row=self.app.schedule.create('Wake up',1,'alarm',source);self.app.due(row['due']+.01);return row
     def frame(self,source='pc'):self.audio.sync();return self.audio.frames[source]
+    def test_status_and_alarm_edit_cannot_deadlock_each_other(self):
+        # Reproduce the live outage: a Pi status read and a timer edit each
+        # acquired the other's lock, freezing all database-backed requests.
+        class BoundedLock:
+            def __init__(self):self.lock=threading.RLock()
+            def __enter__(self):
+                if not self.lock.acquire(timeout=2):raise TimeoutError('Lock order deadlock')
+                return self
+            def __exit__(self,*_):self.lock.release()
+        self.app.lock=BoundedLock();self.audio.lock=BoundedLock()
+        self.alarm('pi')
+        synced=threading.Event();editing=threading.Event();reading=threading.Event()
+        errors=[];results=[];real_get=self.app.get;real_sync=self.audio.sync
+        def sync():
+            real_sync()
+            if threading.current_thread().name=='status-poll':
+                synced.set()
+                if not editing.wait(2):raise TimeoutError('Edit never started')
+        def get(key):
+            if threading.current_thread().name=='status-poll' and synced.is_set():reading.set()
+            return real_get(key)
+        def run_status():
+            try:results.append(self.audio.status())
+            except Exception as exc:errors.append(exc)
+        def edit():
+            try:
+                if not synced.wait(2):raise TimeoutError('Status never started')
+                with self.app.lock:
+                    editing.set()
+                    if not reading.wait(2):raise TimeoutError('Status never read settings')
+                    self.app.schedule.modify('number one','alarm','snooze','pi','five minutes')
+            except Exception as exc:errors.append(exc)
+        with patch.object(self.app,'get',side_effect=get),patch.object(self.audio,'sync',side_effect=sync):
+            workers=[threading.Thread(target=run_status,name='status-poll',daemon=True),threading.Thread(target=edit,daemon=True)]
+            for worker in workers:worker.start()
+            for worker in workers:worker.join(5)
+        self.assertFalse(any(worker.is_alive() for worker in workers))
+        self.assertEqual(errors,[])
+        self.assertEqual(len(results),1)
+        self.assertEqual(self.app.schedule.rows('alarm')[0]['status'],'active')
+
+    def test_alarm_audio_preparation_does_not_hold_database_lock(self):
+        self.alarm('pi');ready=threading.Event();release=threading.Event();read=threading.Event()
+        def slow_sound():
+            ready.set();release.wait(3)
+        with patch.object(self.audio,'sync',side_effect=slow_sound):
+            edit=threading.Thread(target=self.app.schedule.modify,args=('number one','alarm','snooze','pi','five minutes'),daemon=True)
+            edit.start()
+            try:
+                self.assertTrue(ready.wait(2))
+                reader=threading.Thread(target=lambda:(self.app.get('name'),read.set()),daemon=True)
+                reader.start();self.assertTrue(read.wait(1),'A slow sound blocked unrelated requests')
+            finally:release.set();edit.join(4)
+            reader.join(2)
+
     def test_alarm_has_non_silent_pcm_and_does_not_use_tts(self):
         self.alarm();dispatch=Mock(return_value=True);self.audio.dispatch=dispatch;self.audio.tick()
         content=dispatch.call_args.args[0]
