@@ -5,6 +5,7 @@ faster-whisper==1.2.1
 piper-tts==1.8.0
 webrtcvad-wheels==2.0.14
 sherpa-onnx==1.13.8
+vosk==0.3.45
 sentencepiece==0.2.2
 kokoro-onnx==0.6.1
 

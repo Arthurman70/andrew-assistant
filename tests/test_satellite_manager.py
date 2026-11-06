@@ -73,5 +73,18 @@ class RecoveryTests(unittest.TestCase):
                 self.manager.remember_address('invalid')
                 write.assert_not_called()
 
+    def test_ready_keyword_runtime_is_not_reinstalled(self):
+        self.manager.ssh=Mock()
+        with patch('keyword_grammar.model_path',return_value=Path('/model')):
+            self.manager.prepare_keywords('pi')
+        self.assertEqual(self.manager.ssh.call_count,1)
+        self.assertNotIn('pip install',self.manager.ssh.call_args.args[1])
+
+    def test_missing_host_model_keeps_existing_small_detector(self):
+        self.manager.ssh=Mock()
+        with patch('keyword_grammar.model_path',return_value=None):
+            self.manager.prepare_keywords('pi')
+        self.manager.ssh.assert_not_called()
+
 
 if __name__=='__main__':unittest.main()

@@ -164,5 +164,9 @@
   "web/widget.js",
   "tests/test_speech_memory.py",
   "tests/test_satellite_manager.py",
-  "tests/test_pi_delivery.py"
+  "tests/test_pi_delivery.py",
+  "keyword_grammar.py",
+  "download_keyword_model.py",
+  "tests/test_keyword_grammar.py",
+  "tests/test_pi_capture_startup.py"
 ]

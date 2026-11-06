@@ -21,6 +21,7 @@ SOURCES=[('pi/agent.py','agent.py'),('pi/activate-agent.sh','activate-agent.sh')
          ('pi/screen.py','screen.py'),('pi/screen.html','screen.html'),
          ('pi/screensaver.py','screensaver.py'),('pi/screensaver.html','screensaver.html'),
          ('wake_detector.py','wake_detector.py'),('wake_capture.py','wake_capture.py'),
+         ('keyword_grammar.py','keyword_grammar.py'),('download_keyword_model.py','download_keyword_model.py'),
          ('conversation_turns.py','conversation_turns.py'),
          ('background_guard.py','background_guard.py'),('audio_utils.py','audio_utils.py'),
          ('voice_tuning.py','voice_tuning.py'),('wake_tuning.json','wake_tuning.json'),
@@ -113,10 +114,27 @@ class SatelliteManager:
                 item=tarfile.TarInfo(destination);item.size=len(content);item.mode=0o644;archive.addfile(item,io.BytesIO(content))
             content=deployment_version().encode();item=tarfile.TarInfo('deployment-version.txt');item.size=len(content);archive.addfile(item,io.BytesIO(content))
         self.ssh(address,'mkdir -p /opt/andrew/assets && tar -xf - -C /opt/andrew',bundle.getvalue(),timeout=30)
+        self.prepare_keywords(address)
         self.ssh(address,'sudo systemctl restart andrew-relay andrew-screen andrew-display',timeout=30)
         self.remember_address(address)
         self.status.update(state='ready',error='',update_queued=False,installed_version=deployment_version())
         (ROOT/'data/pi-update-queued.json').unlink(missing_ok=True)
+
+    def prepare_keywords(self,address):
+        """Prepare the optional local detector before restarting a writable Pi."""
+        from keyword_grammar import model_path
+        model=model_path(ROOT/'runtime/wake')
+        if model is None:return
+        probe="PYTHONPATH=/opt/andrew/python python3 -c \"import vosk; vosk.SetLogLevel(-1); vosk.Model('/opt/andrew/wake/vosk')\""
+        try:self.ssh(address,probe,timeout=15);return
+        except subprocess.CalledProcessError:pass
+        self.status.update(state='updating',error='',detail='Preparing local wake detection.')
+        self.ssh(address,'python3 -m pip install --disable-pip-version-check --no-warn-script-location --target /opt/andrew/python vosk==0.3.45',timeout=240)
+        bundle=io.BytesIO()
+        with tarfile.open(fileobj=bundle,mode='w:gz') as archive:
+            archive.add(model,arcname='wake/vosk')
+        self.ssh(address,'tar -xzf - -C /opt/andrew',bundle.getvalue(),timeout=120)
+        self.ssh(address,probe,timeout=15)
 
     def restore_display(self,address):
         if self.pairing().get('mode')=='writable':return

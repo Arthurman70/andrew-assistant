@@ -32,3 +32,6 @@ if not (wake/'bpe.model').exists():
                 (wake/name).write_bytes(bundle.extractfile(member).read())
     archive.unlink()
 print('Kokoro natural voice and keyword-only wake models ready.',flush=True)
+from download_keyword_model import install as install_keyword_model
+install_keyword_model(wake)
+print('Echo-tolerant local keyword model ready.',flush=True)

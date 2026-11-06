@@ -1,12 +1,12 @@
 # Andrew — Windows Voice Assistant with Raspberry Pi and Mobile Clients
 
-[![Download Windows prerelease](https://img.shields.io/badge/Download%20Windows%20prerelease-2563eb?style=for-the-badge)](https://github.com/Arthurman70/andrew-assistant/releases/download/v0.1.15/Andrew-Setup.exe) [![Download Android APK](https://img.shields.io/badge/Download%20Android%20APK-0f766e?style=for-the-badge)](https://github.com/Arthurman70/andrew-assistant/releases/download/v0.1.15/Andrew-Android.apk) [![All device downloads](https://img.shields.io/badge/All%20device%20downloads-475569?style=for-the-badge)](https://github.com/Arthurman70/andrew-assistant/releases/tag/v0.1.15)
+[![Download Windows prerelease](https://img.shields.io/badge/Download%20Windows%20prerelease-2563eb?style=for-the-badge)](https://github.com/Arthurman70/andrew-assistant/releases/download/v0.1.16/Andrew-Setup.exe) [![Download Android APK](https://img.shields.io/badge/Download%20Android%20APK-0f766e?style=for-the-badge)](https://github.com/Arthurman70/andrew-assistant/releases/download/v0.1.16/Andrew-Android.apk) [![All device downloads](https://img.shields.io/badge/All%20device%20downloads-475569?style=for-the-badge)](https://github.com/Arthurman70/andrew-assistant/releases/tag/v0.1.16)
 
 [Hosted sign-in](https://andrew.thegreatlakesgleaner.press/) · [Windows setup](#windows-installation) · [Self-hosting](DEPLOYMENT.md) · [FAQ](#frequently-asked-questions)
 
-**Early prerelease v0.1.15.** Install and configure the Windows host first. Pi and browser/mobile clients rely on an awake host. The hosted website requires an account; it is not an anonymous demo.
+**Early prerelease v0.1.16.** Install and configure the Windows host first. Pi and browser/mobile clients rely on an awake host. The hosted website requires an account; it is not an anonymous demo.
 
-**Downloads and setup:** [Download Windows prerelease](https://github.com/Arthurman70/andrew-assistant/releases/download/v0.1.15/Andrew-Setup.exe) · [Download Android APK](https://github.com/Arthurman70/andrew-assistant/releases/download/v0.1.15/Andrew-Android.apk) · [All device downloads](https://github.com/Arthurman70/andrew-assistant/releases/tag/v0.1.15)
+**Downloads and setup:** [Download Windows prerelease](https://github.com/Arthurman70/andrew-assistant/releases/download/v0.1.16/Andrew-Setup.exe) · [Download Android APK](https://github.com/Arthurman70/andrew-assistant/releases/download/v0.1.16/Andrew-Android.apk) · [All device downloads](https://github.com/Arthurman70/andrew-assistant/releases/tag/v0.1.16)
 
 An open-source assistant with a Windows host, Raspberry Pi voice/screen satellite, and authenticated browser/mobile client. Use local commands for everyday tasks and signed-in Grok, Claude, or OpenAI accounts for conversation and automatic, tested improvements.
 
@@ -186,7 +186,7 @@ Andrew is an early-stage assistant with a Windows host, optional Raspberry Pi vo
 
 ### How do I download and install Andrew on Windows?
 
-Download the v0.1.15 prerelease **Andrew-Setup.exe**, or extract **Andrew-Windows.zip** and open **Install Andrew.cmd**. Setup can install Python 3.12 for your user and download speech models, which require several GB. Follow [Windows installation](#windows-installation) to choose audio devices and connect accounts.
+Download the v0.1.16 prerelease **Andrew-Setup.exe**, or extract **Andrew-Windows.zip** and open **Install Andrew.cmd**. Setup can install Python 3.12 for your user and download speech models, which require several GB. Follow [Windows installation](#windows-installation) to choose audio devices and connect accounts.
 
 ### Can Andrew work without a paid AI API key?
 
@@ -225,3 +225,9 @@ The documented improvement workflow stages a bounded patch, runs regression chec
 The host checks the installed Pi version and service state before recovery. A temporary lost heartbeat or PC outage no longer reinstalls the same version or repeatedly restarts a running microphone and display. Stopped services are started, and the last authenticated local address is saved when the Pi moves between Ethernet and Wi-Fi.
 
 Alarm edits and status polling now share a consistent lock order, preventing a simultaneous edit from freezing requests. Pi speech delivery expires only after synthesis finishes, so loading a local voice cannot silently discard the reply. Andrew's dedicated Chromium windows disable automatic component downloads to keep temporary storage available.
+
+## Local wake detection
+
+English names supported by the local keyword dictionary use a constrained Vosk phrase detector, including the full **Hey + name** address and rejection paths for similar names. Other names retain the existing keyword spotter. Unknown words cannot shorten the wake phrase to just “Hey.” No general room transcription is enabled; only matched keyword boundaries leave the detector, and normal request recognition starts after an accepted address.
+
+The Pi receives its saved name and loads its wake and interruption models before opening the microphone. Renaming reopens capture after the new models are ready. Decoder resets during playback are deferred until listening resumes, avoiding audio backlog. The public installers download the additional small model separately; paired writable Pi updates prepare the runtime before restarting.

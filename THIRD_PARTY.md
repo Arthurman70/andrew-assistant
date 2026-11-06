@@ -3,6 +3,7 @@
 Andrew's code is GPL-3.0-or-later. Dependencies, external clients, and separately downloaded model weights retain their own licenses. No account credentials or trained speech weights are included in releases. Check accompanying model cards before redistributing downloaded weights.
 
 - [Sherpa ONNX](https://github.com/k2-fsa/sherpa-onnx): keyword spotting, Parakeet inference, speaker matching.
+- [Vosk](https://github.com/alphacep/vosk-api) and its [small English model](https://alphacephei.com/vosk/models): constrained local wake-phrase detection, Apache-2.0.
 - [NVIDIA Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3): recognition.
 - [Faster Whisper](https://github.com/SYSTRAN/faster-whisper): optional recognition.
 - [Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx): fast local speech.

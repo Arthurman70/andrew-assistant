@@ -543,7 +543,7 @@ class Handler(BaseHTTPRequestHandler):
                 source='pc' if self.trusted_local() else 'pi'
                 return self.send(200,{'armed':FOLLOWUP.arm(source,data.get('grant')), 'followup':FOLLOWUP.view(source)})
             if self.path == '/api/relay-health' and not self.trusted_local():
-                PI_HEALTH.update({k:data[k] for k in ('device','speaker','peak','phase','error','protocol','version','outputs','inputs','wakes','display','camera','wake_phrase','background_guard','empty_wakes','rejected_wakes','responses','playback_started_at','playback_finished_at','playback_state','alarm_sound_revision') if k in data},
+                PI_HEALTH.update({k:data[k] for k in ('device','speaker','peak','phase','error','protocol','version','outputs','inputs','wakes','display','camera','wake_phrase','wake_engine','background_guard','empty_wakes','rejected_wakes','responses','playback_started_at','playback_finished_at','playback_state','alarm_sound_revision') if k in data},
                                  seen=time.time(),ip=self.client_address[0])
                 APP.relay_seen = time.time()
                 return self.send(200,{'ok':True})

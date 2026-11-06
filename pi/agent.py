@@ -28,10 +28,11 @@ CONFIG = json.loads((BASE/'relay-config.json').read_text())
 TLS = ssl.create_default_context(cafile=str(BASE/'pc.crt'))
 VERSION_FILE=Path(__file__).parent/'deployment-version.txt'
 STATE = {'protocol':2,'version':VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12],
-         'phase':'starting','device':'','speaker':'','peak':0,'error':'','wakes':0}
+         'phase':'starting','device':'','speaker':'','peak':0,'error':'','wakes':0,'responses':0}
 BUSY = threading.Event()
 REQUEST_BUSY = threading.Event()
 PAUSED = threading.Event()
+CONFIG_READY = threading.Event()
 PLAY_LOCK = threading.Lock()
 REQUESTS = queue.Queue(maxsize=1)
 ANNOUNCEMENTS=queue.Queue(maxsize=4)
@@ -185,6 +186,7 @@ def poll():
                 CONFIG['volume']=result['audio_settings'].get('volume',80)
                 CONFIG['snooze_deadline']=time.monotonic()+max(0,float(result['audio_settings'].get('snooze_remaining',0)))
                 CONFIG['wake_mode']=result['audio_settings'].get('wake_mode','adaptive')
+            CONFIG_READY.set()
             STATE['outputs']=[{'id':f'plughw:{c[1]},{c[3]}','name':c[2]} for c in devices('aplay')]
             STATE['inputs']=[{'id':f'plughw:{c[1]},{c[3]}','name':c[2]} for c in devices('arecord')]
             if result.get('audio'):
@@ -242,17 +244,23 @@ def worker():
             STATE['phase']='snoozed' if snoozed() else 'waiting for name'
 
 def capture():
+    STATE.update(phase='loading wake detector',error='')
+    CONFIG_READY.wait(timeout=8)
     device=microphone()
     selected = CONFIG.get('microphone_device','auto')
-    capture=WakeCapture(Path(__file__).parent/'wake',CONFIG.get('name','Andrew'))
-    interrupt=InterruptDetector(Path(__file__).parent/'wake',CONFIG.get('name','Andrew'))
+    active_name=CONFIG.get('name','Andrew')
+    capture=WakeCapture(Path(__file__).parent/'wake',active_name)
+    interrupt=InterruptDetector(Path(__file__).parent/'wake',active_name)
     process=subprocess.Popen(['arecord','-q','-D',device,'-f','S16_LE','-r','16000','-c','1','-t','raw'],stdout=subprocess.PIPE)
     try:
-        STATE.update(phase='waiting for name',error='')
+        STATE.update(phase='checking microphone',error='')
         print('Keyword-only microphone ready. Background transcription disabled. Camera closed.',flush=True)
         while CONFIG.get('listening',True) and not snoozed() and selected == CONFIG.get('microphone_device','auto'):
             frame=process.stdout.read(640)
             if len(frame)!=640: raise RuntimeError('Microphone disconnected; reconnecting.')
+            # Reopen after a rename, loading both models before capture starts.
+            # Reloading them inside a live stream overflowed ALSA and lost words.
+            if CONFIG.get('name','Andrew')!=active_name:break
             occupied=PLAY_LOCK.locked() or REQUEST_BUSY.is_set()
             paused=bool(SPEECH_STATE['paused'] and SPEECH_STATE['until']>time.monotonic())
             action=interrupt.feed(frame,CONFIG.get('name','Andrew'),occupied or paused,paused)
@@ -269,11 +277,13 @@ def capture():
             media=STATE.get('display',{}).get('mode') in ('browser','video')
             request=capture.feed(frame,CONFIG.get('name','Andrew'),CONFIG.get('wake_mode','adaptive'),media)
             STATE.update(wake_phrase=wake_phrase(CONFIG.get('name','Andrew')),background_guard=capture.cautious,
+                         wake_engine=getattr(capture.detector,'engine','local keyword spotter'),
                          empty_wakes=capture.empty_wakes,rejected_wakes=capture.rejected_wakes)
             if not was_active and capture.active and capture.activation=='wake':
                 STATE['wakes']+=1
                 display_wake()
-            if not BUSY.is_set(): STATE['phase']=capture.phase
+            if not BUSY.is_set():
+                STATE['phase']=capture.phase if capture.background.frames>=100 or capture.active else 'checking microphone'
             if request is not None:
                 REQUEST_BUSY.set();STATE['phase']='recognizing'
                 REQUESTS.put((request,time.monotonic(),capture.last_grant))

@@ -6,6 +6,7 @@ import sentencepiece as spm
 import sherpa_onnx
 import webrtcvad
 from voice_tuning import load as load_tuning
+from keyword_grammar import KeywordGrammar
 
 
 def wake_phrase(name):
@@ -27,6 +28,12 @@ class WakeDetector:
         processor=spm.SentencePieceProcessor(model_file=str(self.directory/'bpe.model'))
         # Spot the entire address, not a name mentioned in another conversation.
         phrases=sleep_wake_phrases(name) if sleep_only else (wake_phrase(name),)
+        self.grammar=KeywordGrammar.available(self.directory,name,phrases)
+        if self.grammar is not None:
+            self.engine='local keyword grammar'
+            self.name=name;self.sleep_only=sleep_only;self.reset()
+            return
+        self.engine='local keyword spotter'
         tuning=load_tuning()
         score=tuning['keyword_score'];threshold=tuning['keyword_threshold']
         key=hashlib.sha256(f'hey-address-v4:{name}:{sleep_only}:{score}:{threshold}'.encode()).hexdigest()[:10]
@@ -41,11 +48,20 @@ class WakeDetector:
         self.name=name;self.sleep_only=sleep_only;self.reset()
 
     def reset(self):
-        self.stream=self.spotter.create_stream();self.samples=0
+        if getattr(self,'grammar',None) is not None:self.grammar.reset()
+        else:self.stream=self.spotter.create_stream()
+        self.samples=0
         self.quiet_frames=0
         self.command_start=0
 
     def accept(self,pcm):
+        if getattr(self,'grammar',None) is not None:
+            hit=self.grammar.accept(pcm)
+            self.samples=self.grammar.samples
+            if hit is not None:
+                boundary,self.command_start=hit
+                return boundary
+            return None
         # KWS resets its internal token timestamps after long blank runs. Reset
         # our own stream during idle silence first, so sample and token clocks
         # remain aligned when the next person speaks. No speech-to-text here.
